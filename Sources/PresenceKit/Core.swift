@@ -34,6 +34,11 @@ public struct Config: Codable, Equatable {
     public var strangerMinWidth: Float = 0.15
     /// Minutes the cover stays up before the real lock; 0 = no limit.
     public var coverMinutes: Double = 0
+    /// Bundle IDs of apps that need your face (or Touch ID) to open.
+    public var lockedApps: [String] = []
+    /// Lock an unlocked app again once you've been out of it this many minutes; 0 = only when you
+    /// walk away, the Mac locks, or you quit it.
+    public var appRelockMinutes: Double = 0
     /// iMessage phone number or Apple ID email for intruder photos; empty = save photos only.
     public var alertTo: String = ""
     /// Require a live face (blink, screen-flash reflection, no phone held up) before the cover lifts or the Mac unlocks.
@@ -52,8 +57,10 @@ public struct Config: Codable, Equatable {
     public var trustScore: Float = 0.5
     /// Glow brightness over the cover, 0...1 (1 = full-screen solid color).
     public var flashStrength: Float = 0.5
+    /// Live-face check: "headturn" asks for a random head move (default); "glow" flashes the screen.
+    public var liveCheck: String = "headturn"
     /// Lock screen also needs a blink (slower by a second or two, much harder to fool with a photo).
-    public var lockScreenBlink: Bool = true
+    public var lockScreenBlink: Bool = false
     /// Learn a new look of you after a confident live unlock (score at least this), at most every 10 minutes.
     public var learnScore: Float = 0.55
     /// Minimum flash response for a real face; tuned on a real face vs. a phone screen.

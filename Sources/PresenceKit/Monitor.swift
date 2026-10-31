@@ -37,7 +37,9 @@ final class Monitor {
     private var inputSeenAt: Date?
 
     // Lock-screen face unlock.
-    private var password: Data?
+    /// Your login password once Touch ID approved it; the host keeps it across restarts so you aren't asked again.
+    var password: Data?
+    var onPasswordLoaded: ((Data) -> Void)?
     private var lockedSince: Date?
     private var scanUntil: Date?
     private var unlockCameraOn = false
@@ -97,8 +99,9 @@ final class Monitor {
 
     func run() async {
         log("monitoring: interval \(cfg.interval)s, idleGrace \(cfg.idleGrace)s, missesToLock \(cfg.missesToLock), threshold \(cfg.threshold), cover \(cfg.coverMinutes)m, alerts \(cfg.alertTo.isEmpty ? "off" : "on"), \(profile.samples.count) samples")
-        if cfg.faceUnlock && Credentials.isStored {
+        if password == nil && cfg.faceUnlock && Credentials.isStored {
             password = await Credentials.load(reason: "turn on face unlock")
+            if let password { onPasswordLoaded?(password) }
             log(password == nil ? "face unlock: not approved, off until restart" : "face unlock: on\(KeyTyper.trusted ? "" : " (but Accessibility not granted yet)")")
         }
         for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {

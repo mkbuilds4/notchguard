@@ -144,9 +144,18 @@ final class NotchPanel {
 
 // MARK: - Face ID HUD
 
+public enum HUDState {
+    case scanning(String), success(String), failure(String)
+}
+
+/// The host's presenter, if it draws the HUD and enrollment itself (NotchNerd); nil = our own NotchPanel.
+private func hostPresenter() -> GuardPresenter? {
+    MainActor.assumeIsolated { PresenceGuard.shared.presenter }
+}
+
 /// Notch panel with the Face ID glyph: pulses while looking, green on success, red and a shake on failure.
 final class FaceHUD {
-    enum State { case scanning(String), success(String), failure(String) }
+    typealias State = HUDState
 
     private let panel = NotchPanel(openSize: CGSize(width: 220, height: 170))
     private let glyph = NSImageView()
@@ -168,9 +177,10 @@ final class FaceHUD {
         c.addSubview(label)
     }
 
-    var isShown: Bool { panel.isOpen }
+    var isShown: Bool { hostPresenter() == nil && panel.isOpen }
 
     func show(_ state: State) {
+        if let host = hostPresenter() { MainActor.assumeIsolated { host.showHUD(state) }; return }
         switch state {
         case .scanning(let text):
             glyph.removeAllSymbolEffects()
@@ -195,6 +205,7 @@ final class FaceHUD {
     }
 
     func hide(after delay: Double = 0) {
+        if let host = hostPresenter() { MainActor.assumeIsolated { host.hideHUD(after: delay) }; return }
         panel.close(after: delay) { [glyph] in glyph.removeAllSymbolEffects() }
     }
 }
@@ -267,7 +278,8 @@ final class NotchEnroller {
     }
 
     func begin() {
-        panel.open()
+        if let host = hostPresenter() { MainActor.assumeIsolated { host.enrollmentBegan(session: camera.session) } }
+        else { panel.open() }
         camera.start { [weak self] pb in self?.frame(pb) }
     }
 
@@ -279,7 +291,7 @@ final class NotchEnroller {
         defer { busy = false }
         let faces = matcher.faces(in: pb)
         guard faces.count == 1, let pose = matcher.pose(pb) else {
-            DispatchQueue.main.async { [self] in if !finished { label.stringValue = faces.count > 1 ? "Only you in frame, please" : "Move your face into the circle" } }
+            DispatchQueue.main.async { [self] in if !finished { setPrompt(faces.count > 1 ? "Only you in frame, please" : "Move your face into the circle") } }
             return
         }
         last = Date()
@@ -296,7 +308,7 @@ final class NotchEnroller {
                 neutral = CGPoint(x: neutralSamples.map(\.x).reduce(0, +) / CGFloat(centerTarget),
                                   y: neutralSamples.map(\.y).reduce(0, +) / CGFloat(centerTarget))
             }
-            label.stringValue = center.count < centerTarget ? "Look straight at the camera" : prompt()
+            setPrompt(center.count < centerTarget ? "Look straight at the camera" : prompt())
             return
         }
         guard let neutral else { return }
@@ -311,7 +323,7 @@ final class NotchEnroller {
                 light(sector: s)
             }
         }
-        if bySector.allSatisfy({ $0.count >= perDirection }) { finish() } else { label.stringValue = prompt() }
+        if bySector.allSatisfy({ $0.count >= perDirection }) { finish() } else { setPrompt(prompt()) }
     }
 
     private func light(sector s: Int) {
@@ -327,6 +339,33 @@ final class NotchEnroller {
         return "Tilt your head to the \(Self.directions[next])"
     }
 
+    /// Updates our label, or tells the host presenter (prompt, 8 sector fills 0...1, straight-on progress 0...1).
+    private func setPrompt(_ text: String) {
+        label.stringValue = text
+        guard let host = hostPresenter() else { return }
+        let fill = bySector.map { min(1, Double($0.count) / Double(perDirection)) }
+        let centerProgress = min(1, Double(center.count) / Double(centerTarget))
+        MainActor.assumeIsolated { host.enrollmentUpdated(prompt: text, sectorFill: fill, centerProgress: centerProgress) }
+    }
+
+    /// Stops without saving (the host's cancel button).
+    func cancel() {
+        guard !finished else { return }
+        finished = true
+        camera.stop()
+        end(ok: false, message: "Setup cancelled")
+    }
+
+    private func end(ok: Bool, message: String) {
+        if let host = hostPresenter() {
+            MainActor.assumeIsolated { host.enrollmentEnded(ok: ok, message: message) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [onFinish] in onFinish(ok) }
+        } else {
+            label.stringValue = message
+            panel.close(after: 1.6) { [onFinish] in onFinish(ok) }
+        }
+    }
+
     private func finish() {
         finished = true
         camera.stop()
@@ -335,11 +374,9 @@ final class NotchEnroller {
             try Profile(samples: samples, createdAt: Date()).save()
             log("enrolled \(samples.count) samples (\(centerTarget) straight-on + \(perDirection) in each of 8 directions)")
             ticks.forEach { $0.strokeColor = NSColor.systemGreen.cgColor }
-            label.stringValue = "Face set up"
+            end(ok: true, message: "Face set up")
         } catch {
-            label.stringValue = "Couldn't save: \(error.localizedDescription)"
+            end(ok: false, message: "Couldn't save: \(error.localizedDescription)")
         }
-        let ok = Profile.load() != nil
-        panel.close(after: 1.6) { [onFinish] in onFinish(ok) }
     }
 }

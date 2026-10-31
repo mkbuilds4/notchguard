@@ -24,7 +24,7 @@ run_app() { # through LaunchServices so the camera permission belongs to the app
 }
 
 case "${1:-status}" in
-  enroll|password|check|lock-test|cover-test|live-test|hud-test) run_app "$@" ;;
+  enroll|password|check|lock-test|cover-test|live-test|hud-test|install-model) run_app "$@" ;;
   start)
     mkdir -p "$HOME/Library/LaunchAgents"
     cat > "$PLIST" <<PL

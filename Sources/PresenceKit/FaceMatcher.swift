@@ -202,7 +202,7 @@ func cosine(_ a: [Float], _ b: [Float]) -> Float {
 }
 
 /// The enrolled face: every sample kept, matched by best cosine against any of them.
-struct Profile: Codable {
+public struct Profile: Codable {
     var samples: [[Float]]
     var createdAt: Date
     /// Recent confident, live-checked matches, so the profile follows a growing beard or new glasses.
@@ -216,7 +216,7 @@ struct Profile: Codable {
 
     enum CodingKeys: String, CodingKey { case samples, createdAt, learned, lastLearned }
     init(samples: [[Float]], createdAt: Date) { self.samples = samples; self.createdAt = createdAt }
-    init(from d: Decoder) throws {
+    public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         samples = try c.decode([[Float]].self, forKey: .samples)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
@@ -233,7 +233,7 @@ struct Profile: Codable {
         return true
     }
 
-    static func load() -> Profile? {
+    public static func load() -> Profile? {
         guard let d = try? Data(contentsOf: Paths.profile) else { return nil }
         return try? JSONDecoder().decode(Profile.self, from: d)
     }

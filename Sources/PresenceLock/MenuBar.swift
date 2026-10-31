@@ -9,6 +9,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let guardian = PresenceGuard.shared
     private var pauseUntil: Date?
     private var resumeTimer: Timer?
+    private let settings = SettingsWindow()
 
     override init() {
         super.init()
@@ -18,6 +19,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         item.menu = menu
         guardian.onEvent = { [weak self] event in self?.handle(event) }
         if guardian.faceEnrolled { guardian.start() } else { DispatchQueue.main.async { self.firstRun() } }
+        guardian.startAppLock()
         refreshIcon()
     }
 
@@ -38,14 +40,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        menu.addItem(action(guardian.faceEnrolled ? "Set Up My Face Again…" : "Set Up My Face…", #selector(enroll)))
-        let unlock = action(faceUnlockTitle(), #selector(faceUnlock))
-        menu.addItem(unlock)
         menu.addItem(action("Intruder Photos…", #selector(openPhotos)))
-        menu.addItem(action("Settings File…", #selector(openSettings)))
-        let login = action("Open at Login", #selector(toggleLogin))
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
+        menu.addItem(action("Settings…", #selector(openSettingsWindow), key: ","))
         menu.addItem(.separator())
         menu.addItem(action("Quit Presence Lock", #selector(quit), key: "q"))
     }
@@ -87,7 +83,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private func firstRun() {
         let a = NSAlert()
         a.messageText = "Set up Presence Lock"
-        a.informativeText = "Presence Lock covers your screen when you walk away and locks your Mac if someone else sits down. It runs entirely on this Mac.\n\nFirst, a quick face setup in the notch: look at the camera, then slowly tilt your head in a circle."
+        a.informativeText = "Presence Lock covers your screen when you walk away and locks your Mac if someone else sits down. It runs entirely on this Mac.\n\nFirst it downloads the face model (about 13 MB, from InsightFace), then a quick face setup in the notch: look at the camera, then slowly tilt your head in a circle."
         a.addButton(withTitle: "Set Up My Face")
         a.addButton(withTitle: "Later")
         NSApp.activate(ignoringOtherApps: true)
@@ -95,6 +91,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func enroll() {
+        guard guardian.modelInstalled else { installModelThenEnroll(); return }
         let wasRunning = guardian.isRunning
         guardian.stop()
         guardian.enroll { [weak self] ok in
@@ -102,6 +99,24 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             if ok || wasRunning { self.guardian.start() }
             self.refreshIcon()
             if ok && !self.guardian.passwordStored { self.offerFaceUnlock() }
+        }
+    }
+
+    /// First run on a public build: fetch and convert the face model (about 13 MB, under a minute), then set up.
+    private func installModelThenEnroll() {
+        item.button?.appearsDisabled = true
+        Task {
+            do {
+                try await guardian.installModel()
+                enroll()
+            } catch {
+                let a = NSAlert()
+                a.messageText = "Couldn't download the face model"
+                a.informativeText = "\(error.localizedDescription)\n\nCheck your connection and try Set Up My Face again."
+                NSApp.activate(ignoringOtherApps: true)
+                a.runModal()
+            }
+            refreshIcon()
         }
     }
 
@@ -153,6 +168,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openPhotos() { NSWorkspace.shared.open(guardian.intruderPhotos) }
+
+    @objc private func openSettingsWindow() {
+        Task {
+            // Settings can turn protection off, so they need the owner.
+            guard await PresenceGuard.confirmOwner(reason: "open Presence Lock settings") else { return }
+            settings.show()
+        }
+    }
 
     @objc private func openSettings() {
         guardian.config = guardian.config // make sure the file exists with every setting

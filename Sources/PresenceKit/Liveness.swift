@@ -54,6 +54,7 @@ extension Monitor {
     /// Fast mode (default) passes on you + flash response (cover) or you + no phone in view (lock screen);
     /// strict mode also waits for a blink.
     func checkLive(seconds: Double, cover: Cover?) async -> (LiveVerdict, Liveness) {
+        if cfg.liveCheck == "headturn" { return await headTurnCheck(seconds: seconds, cover: cover) }
         let strict = cfg.livenessMode == "strict"
         var ev = Liveness()
         let start = Date()
@@ -119,6 +120,96 @@ extension Monitor {
             try? await Task.sleep(for: .milliseconds(cover == nil ? 50 : 80))
             sample(phase: nil)
         }
+        return (.inconclusive, ev)
+    }
+
+    // MARK: head-turn challenge
+
+    enum TurnDirection: CaseIterable {
+        case left, right, up, down
+        var prompt: String {
+            switch self {
+            case .left: "Turn your head left"
+            case .right: "Turn your head right"
+            case .up: "Look up"
+            case .down: "Look down"
+            }
+        }
+        /// How far the head moved this way, from a pose delta (x = your right, y = up, in face widths).
+        func along(_ d: CGPoint) -> CGFloat {
+            switch self {
+            case .left: -d.x
+            case .right: d.x
+            case .up: d.y
+            case .down: -d.y
+            }
+        }
+        func across(_ d: CGPoint) -> CGFloat { self == .left || self == .right ? abs(d.y) : abs(d.x) }
+        /// Pitch moves the nose less than yaw does.
+        var needed: CGFloat { self == .left || self == .right ? 0.07 : 0.05 }
+    }
+
+    /// Asks for one random head move and checks the face really turns that way. A photo can't follow it
+    /// and a recording can't know which move is coming. Phone-outline detection still runs alongside.
+    func headTurnCheck(seconds: Double, cover: Cover?) async -> (LiveVerdict, Liveness) {
+        var ev = Liveness()
+        let start = Date()
+        var lastIdentity = Date.distantPast
+        var lastDevice = Date.distantPast
+        var poses: [CGPoint] = []
+
+        /// One frame: face probe, phone check, identity every 0.4s, head pose.
+        func sample() -> CGPoint? {
+            guard let frame = newestFrame(), let p = matcher.probe(frame) else { return nil }
+            ev.faceFrames += 1
+            ev.eyeOpen.append(p.eyeOpen)
+            ev.eyeTimes.append(Date())
+            if Date().timeIntervalSince(lastDevice) > 0.3 {
+                lastDevice = Date()
+                if matcher.deviceAround(frame, face: p.box) { ev.deviceHits += 1 }
+            }
+            if Date().timeIntervalSince(lastIdentity) > 0.4 {
+                lastIdentity = Date()
+                let l = look(frame)
+                if l.me { ev.meSeen = true }
+                if l.best > ev.best { ev.bestEmbedding = l.bestEmbedding }
+                ev.best = max(ev.best, l.best)
+            }
+            return matcher.pose(frame)
+        }
+
+        // 1. Straight-on baseline, with your identity confirmed.
+        while Date().timeIntervalSince(start) < 1.5 {
+            try? await Task.sleep(for: .milliseconds(60))
+            if let pose = sample() { poses.append(pose) }
+            if ev.deviceHits >= 3 { return (.spoof("phone or tablet held up"), ev) }
+            if ev.meSeen && poses.count >= 5 { break }
+        }
+        guard ev.meSeen, poses.count >= 3 else { return (.inconclusive, ev) }
+        let xs = poses.map(\.x).sorted(), ys = poses.map(\.y).sorted()
+        let base = CGPoint(x: xs[xs.count / 2], y: ys[ys.count / 2])
+
+        // 2. The challenge.
+        let dir = TurnDirection.allCases.randomElement()!
+        hud.show(.scanning(dir.prompt))
+        cover?.setMessage(dir.prompt)
+        let asked = Date()
+        var stillMe = false
+        while Date().timeIntervalSince(asked) < min(4, max(2, seconds - Date().timeIntervalSince(start))) {
+            try? await Task.sleep(for: .milliseconds(50))
+            guard let pose = sample() else { continue }
+            if ev.deviceHits >= 3 { return (.spoof("phone or tablet held up"), ev) }
+            if ev.meSeen { stillMe = true }
+            let d = CGPoint(x: pose.x - base.x, y: pose.y - base.y)
+            if dir.along(d) > dir.needed && dir.along(d) > dir.across(d) {
+                let needBlink = cfg.livenessMode == "strict" || (cover == nil && cfg.lockScreenBlink)
+                if needBlink && !ev.blinked { continue }
+                log("head-turn: \(dir) ok (moved \(fmt(Float(dir.along(d)))) face widths)")
+                return stillMe ? (.live, ev) : (.inconclusive, ev)
+            }
+        }
+        log("head-turn: \(dir) not seen")
+        cover?.setMessage(nil)
         return (.inconclusive, ev)
     }
 }

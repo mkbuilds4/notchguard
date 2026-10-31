@@ -5,14 +5,21 @@ set -euo pipefail
 cd "${0:A:h}"
 APP="build/Presence Lock.app"
 TMP="build/.staging.app"
-rm -rf "$TMP"; mkdir -p "$TMP/Contents/MacOS" "$TMP/Contents/Resources"
+mkdir -p build; rm -rf "$TMP"; mkdir -p "$TMP/Contents/MacOS" "$TMP/Contents/Resources"
 
-swift build -c release --product presence-lock 2>&1 | grep -E "error|warning: unre|Compiling|Build complete" | grep -v "^\[" || true
+if ! swift build -c release --product presence-lock > build/.swift-build.log 2>&1; then
+  grep -E "error" build/.swift-build.log | head -20; echo "build failed"; exit 1
+fi
 BIN="$(swift build -c release --show-bin-path)/presence-lock"
-[[ -x "$BIN" ]] || { echo "build failed"; exit 1; }
 cp "$BIN" "$TMP/Contents/MacOS/presence-lock"
 
-xcrun coremlcompiler compile models/FaceEmbedder.mlpackage "$TMP/Contents/Resources" >/dev/null
+# The face model isn't in git (InsightFace license). NO_BUNDLED_MODEL=1 builds what a public
+# release is: the app downloads and converts the model on first run instead.
+if [[ -z "${NO_BUNDLED_MODEL:-}" ]]; then
+  [[ -d models/FaceEmbedder.mlpackage ]] || { echo "missing models/FaceEmbedder.mlpackage (see tools/convert_model.py)"; exit 1; }
+  xcrun coremlcompiler compile models/FaceEmbedder.mlpackage "$TMP/Contents/Resources" >/dev/null
+fi
+
 
 cat > "$TMP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

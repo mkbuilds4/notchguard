@@ -8,6 +8,9 @@ final class Cover {
     private var timer: Timer?
     private var shownAt = Date()
     private var deadline: Date?
+    /// Set for an app lock: shows the app's icon and name instead of the clock.
+    private var lockedApp: (name: String, icon: NSImage)?
+    private var actions: [(String, () -> Void)] = []
     private var clocks: [NSTextField] = []
     private var dates: [NSTextField] = []
     private var countdowns: [NSTextField] = []
@@ -19,8 +22,11 @@ final class Cover {
     var since: Date { shownAt }
 
     /// `lockAfter` nil = stay up until you're back (or an intruder trips the real lock).
-    func show(lockAfter: TimeInterval?) {
+    /// `actions` adds buttons under the text (app lock: "Use Touch ID", "Quit").
+    func show(lockAfter: TimeInterval?, app: (name: String, icon: NSImage)? = nil, actions: [(String, () -> Void)] = []) {
         guard !isShown else { return }
+        lockedApp = app
+        self.actions = actions
         shownAt = Date()
         deadline = lockAfter.map { shownAt.addingTimeInterval($0) }
         for screen in NSScreen.screens { windows.append(makeWindow(screen)) }
@@ -68,8 +74,13 @@ final class Cover {
         _ = away
         // Only a real-lock countdown is worth showing; with no limit the line stays empty.
         let status = deadline.map { "Locks in \(mmss(max(0, Int($0.timeIntervalSince(now)))))" } ?? ""
-        clocks.forEach { $0.stringValue = time }
-        dates.forEach { $0.stringValue = day }
+        if let app = lockedApp {
+            clocks.forEach { $0.stringValue = app.name }
+            dates.forEach { $0.stringValue = "Locked" }
+        } else {
+            clocks.forEach { $0.stringValue = time }
+            dates.forEach { $0.stringValue = day }
+        }
         countdowns.forEach { $0.stringValue = status }
     }
 
@@ -139,9 +150,28 @@ final class Cover {
         let date = label(22, .regular, alpha: 0.7)
         let status = label(15, .medium, alpha: 0.55)
         let hint = label(13, .regular, alpha: 0.4)
-        hint.stringValue = defaultHint
+        hint.stringValue = lockedApp == nil ? defaultHint : "Look at the camera to open it"
+        if lockedApp != nil { clock.font = .systemFont(ofSize: 56, weight: .light) }
 
-        let stack = NSStackView(views: [clock, date, NSView(), status, hint])
+        var views: [NSView] = [clock, date, NSView(), status, hint]
+        if let app = lockedApp {
+            let icon = NSImageView(image: app.icon)
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.widthAnchor.constraint(equalToConstant: 128).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: 128).isActive = true
+            views.insert(icon, at: 0)
+        }
+        if !actions.isEmpty {
+            let row = NSStackView(views: actions.map { title, handler in
+                let b = ActionButton(title: title, handler: handler)
+                if #available(macOS 26, *) { b.bezelStyle = .glass } else { b.bezelStyle = .rounded }
+                b.controlSize = .large
+                return b
+            })
+            row.spacing = 12
+            views.append(row)
+        }
+        let stack = NSStackView(views: views)
         stack.orientation = .vertical
         stack.spacing = 10
         stack.setCustomSpacing(40, after: date)
@@ -170,6 +200,17 @@ final class Cover {
 }
 
 /// Borderless windows refuse key status by default; the cover takes it so typing lands here.
+private final class ActionButton: NSButton {
+    private var handler: () -> Void = {}
+    convenience init(title: String, handler: @escaping () -> Void) {
+        self.init(title: title, target: nil, action: nil)
+        self.handler = handler
+        target = self
+        action = #selector(fire)
+    }
+    @objc private func fire() { handler() }
+}
+
 private final class CoverWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }

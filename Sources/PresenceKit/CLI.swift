@@ -6,11 +6,20 @@ import Foundation
 /// The `plock` subcommands (enroll, check, password, live-test, hud-test, cover-test, lock-test, run).
 @MainActor
 public enum PresenceCLI {
-    public nonisolated static let commands: Set<String> = ["run", "enroll", "check", "password", "live-test", "hud-test", "cover-test", "lock-test"]
+    public nonisolated static let commands: Set<String> = ["install-model", "run", "enroll", "check", "password", "live-test", "hud-test", "cover-test", "lock-test"]
     public nonisolated static let interactive: Set<String> = ["enroll", "password"]
     private static var keep: [AnyObject] = []
 
     public static func run(_ command: String, args: [String]) async {
+        if command == "install-model" {
+            do {
+                try await PresenceGuard.shared.installModel { p in if Int(p * 100) % 25 == 0 { log("model download \(Int(p * 100))%") } }
+                exit(0)
+            } catch {
+                log("model install failed: \(error.localizedDescription)")
+                exit(1)
+            }
+        }
         let needsCamera = !["cover-test", "lock-test", "password", "hud-test"].contains(command)
         let cameraOK = needsCamera ? await Camera.authorize() : true
         guard cameraOK else {
