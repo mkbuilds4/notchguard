@@ -20,6 +20,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         guardian.onEvent = { [weak self] event in self?.handle(event) }
         if guardian.faceEnrolled { guardian.start() } else { DispatchQueue.main.async { self.firstRun() } }
         guardian.startAppLock()
+        // macOS drops status items that don't fit beside the notch; say how to get in if ours is one of them.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.warnIfHidden() }
         refreshIcon()
     }
 
@@ -120,6 +122,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
     }
 
+    private func warnIfHidden() {
+        guard let w = item.button?.window, !w.occlusionState.contains(.visible) else { return }
+        log("menu bar icon is hidden (menu bar full)")
+        let n = NSUserNotification()
+        n.title = "Presence Lock is running"
+        n.informativeText = "Your menu bar is full, so its icon is hidden. Open Presence Lock again from Spotlight to see its settings."
+        NSUserNotificationCenter.default.deliver(n)
+    }
+
     private func offerFaceUnlock() {
         let a = NSAlert()
         a.messageText = "Unlock with your face too?"
@@ -168,6 +179,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openPhotos() { NSWorkspace.shared.open(guardian.intruderPhotos) }
+
+    func showSettings() { openSettingsWindow() }
 
     @objc private func openSettingsWindow() {
         Task {
