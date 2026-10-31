@@ -1,0 +1,59 @@
+#!/bin/zsh
+# plock: control Presence Lock.
+#   plock enroll      face setup window (~15s)
+#   plock password    store your Mac password for face unlock (Touch ID gated)
+#   plock check       one camera check, prints your match score
+#   plock start|stop  install/remove the login agent and start/stop monitoring
+#   plock pause|resume
+#   plock status | log | lock-test
+set -euo pipefail
+ROOT="${0:A:h}"
+APP="$ROOT/build/Presence Lock.app"
+[[ -d "$APP" ]] || APP="$ROOT/Presence Lock.app"
+[[ -d "$APP" ]] || APP="/Applications/Presence Lock.app"
+BIN="$APP/Contents/MacOS/presence-lock"
+LABEL=dev.mkbuilds.presence-lock
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+SUPPORT="$HOME/Library/Application Support/PresenceLock"
+LOG="$HOME/Library/Logs/PresenceLock.log"
+
+run_app() { # through LaunchServices so the camera permission belongs to the app
+  local before=0; [[ -f "$LOG" ]] && before=$(wc -l < "$LOG")
+  open -W -n "$APP" --args "$@"
+  tail -n +$((before + 1)) "$LOG" 2>/dev/null || true
+}
+
+case "${1:-status}" in
+  enroll|password|check|lock-test|cover-test|live-test|hud-test) run_app "$@" ;;
+  start)
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cat > "$PLIST" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key><array><string>$BIN</string><string>run</string></array>
+  <key>AssociatedBundleIdentifiers</key><string>$LABEL</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardErrorPath</key><string>$LOG</string>
+</dict></plist>
+PL
+    launchctl bootout gui/$(id -u)/$LABEL 2>/dev/null || true
+    launchctl bootstrap gui/$(id -u) "$PLIST"
+    echo "started (runs at login). plock log to watch." ;;
+  stop)
+    launchctl bootout gui/$(id -u)/$LABEL 2>/dev/null || true
+    rm -f "$PLIST"; echo "stopped" ;;
+  pause)  touch "$SUPPORT/paused"; echo "paused (camera stays off)" ;;
+  resume) rm -f "$SUPPORT/paused"; echo "resumed" ;;
+  status)
+    launchctl print gui/$(id -u)/$LABEL 2>/dev/null | grep -E "state|pid =" || echo "not running"
+    [[ -f "$SUPPORT/paused" ]] && echo "paused"
+    [[ -f "$SUPPORT/profile.json" ]] && echo "face enrolled" || echo "no face enrolled"
+    ps -o rss=,command= -p $(pgrep -f "$BIN run" || echo 1) 2>/dev/null | awk '/presence-lock/{printf "RAM: %.1f MB\n", $1/1024}' ;;
+  log) tail -f "$LOG" ;;
+  *) sed -n '2,8p' "$0"; exit 1 ;;
+esac

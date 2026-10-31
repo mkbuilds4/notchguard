@@ -1,0 +1,117 @@
+import AppKit
+import AVFoundation
+import CoreGraphics
+import Foundation
+
+// MARK: - Paths, config, log
+
+public enum Paths {
+    public static let support: URL = {
+        let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PresenceLock")
+        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+        return u
+    }()
+    public static let profile = support.appendingPathComponent("profile.json")
+    public static let config = support.appendingPathComponent("config.json")
+    public static let paused = support.appendingPathComponent("paused")
+    public static let log = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/PresenceLock.log")
+}
+
+public struct Config: Codable, Equatable {
+    public init() {}
+    /// Seconds between checks while you're idle.
+    public var interval: Double = 4
+    /// Keyboard/mouse activity within this many seconds counts as present; the camera stays off.
+    public var idleGrace: Double = 10
+    /// Consecutive checks without you before the cover goes up.
+    public var missesToLock: Int = 2
+    /// Cosine similarity against your enrolled samples needed to count as you.
+    public var threshold: Float = 0.30
+    /// A face scoring below this (well under `threshold`) is someone else; the band between is ambiguous.
+    public var strangerMaxScore: Float = 0.20
+    /// A face at least this wide (fraction of the frame) is sitting at the Mac, not passing in the background.
+    public var strangerMinWidth: Float = 0.15
+    /// Minutes the cover stays up before the real lock; 0 = no limit.
+    public var coverMinutes: Double = 0
+    /// iMessage phone number or Apple ID email for intruder photos; empty = save photos only.
+    public var alertTo: String = ""
+    /// Require a live face (blink, screen-flash reflection, no phone held up) before the cover lifts or the Mac unlocks.
+    public var liveness: Bool = true
+    /// Unlock the lock screen when it sees you (needs `plock password` and Accessibility).
+    public var faceUnlock: Bool = true
+    /// Seconds the camera looks for you after a lock, and again each time the screen wakes or a key/trackpad is touched.
+    /// The camera (and its light) is off the rest of the time.
+    public var unlockLookSeconds: Double = 20
+    /// "fast": you + no phone in view (lock screen) or you + screen-flash reflection (cover). "strict": also needs a blink.
+    public var livenessMode: String = "fast"
+    /// Cover check: "always" flashes red/blue every time. "suspicious" skips it on a strong match with no phone seen,
+    /// but in testing a phone photo of you (score 0.80, edges out of frame) passed that way, so it's not the default.
+    public var flashCheck: String = "always"
+    /// Match score that counts as convincing enough to skip the flash (you typically score 0.8+).
+    public var trustScore: Float = 0.5
+    /// Glow brightness over the cover, 0...1 (1 = full-screen solid color).
+    public var flashStrength: Float = 0.5
+    /// Lock screen also needs a blink (slower by a second or two, much harder to fool with a photo).
+    public var lockScreenBlink: Bool = true
+    /// Learn a new look of you after a confident live unlock (score at least this), at most every 10 minutes.
+    public var learnScore: Float = 0.55
+    /// Minimum flash response for a real face; tuned on a real face vs. a phone screen.
+    public var flashMin: Float = 0.20
+
+    /// Missing keys fall back to defaults, and the file is rewritten so new settings show up in it.
+    public static func load() -> Config {
+        let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        var merged = (try? JSONSerialization.jsonObject(with: enc.encode(Config()))) as? [String: Any] ?? [:]
+        if let d = try? Data(contentsOf: Paths.config), let file = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+            merged.merge(file) { _, new in new }
+        }
+        let c = (try? JSONSerialization.data(withJSONObject: merged)).flatMap { try? JSONDecoder().decode(Config.self, from: $0) } ?? Config()
+        c.save()
+        return c
+    }
+
+    public func save() {
+        let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try? enc.encode(self).write(to: Paths.config)
+    }
+}
+
+public func log(_ msg: String) {
+    let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
+    print(line, terminator: "")
+    if let h = try? FileHandle(forWritingTo: Paths.log) {
+        h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
+    } else {
+        try? line.data(using: .utf8)!.write(to: Paths.log)
+    }
+}
+
+// MARK: - System state
+
+func secondsIdle() -> Double {
+    CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+}
+
+public func screenIsLocked() -> Bool {
+    guard let d = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+    return (d["CGSSessionScreenIsLocked"] as? Bool) ?? false
+}
+
+public func lockScreen() {
+    // Same call the Control Center "Lock Screen" item makes.
+    if let h = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_NOW),
+       let sym = dlsym(h, "SACLockScreenImmediate") {
+        typealias Fn = @convention(c) () -> Int32
+        let rc = unsafeBitCast(sym, to: Fn.self)()
+        if rc == 0 { return }
+        log("SACLockScreenImmediate returned \(rc), falling back to display sleep")
+    }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+    p.arguments = ["displaysleepnow"]
+    try? p.run()
+}
+
+
+func fmt(_ f: Float) -> String { String(format: "%.2f", f) }

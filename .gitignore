@@ -1,0 +1,6 @@
+build/
+dist/
+.build/
+.DS_Store
+# InsightFace weights are non-commercial: never commit them. Rebuild with tools/convert_model.py.
+models/
