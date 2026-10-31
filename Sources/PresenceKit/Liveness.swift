@@ -55,6 +55,7 @@ extension Monitor {
     /// strict mode also waits for a blink.
     func checkLive(seconds: Double, cover: Cover?) async -> (LiveVerdict, Liveness) {
         if cfg.liveCheck == "headturn" { return await headTurnCheck(seconds: seconds, cover: cover) }
+        if cfg.liveCheck == "natural" { return await naturalCheck(seconds: seconds, cover: cover) }
         let strict = cfg.livenessMode == "strict"
         var ev = Liveness()
         let start = Date()
@@ -120,6 +121,62 @@ extension Monitor {
             try? await Task.sleep(for: .milliseconds(cover == nil ? 50 : 80))
             sample(phase: nil)
         }
+        return (.inconclusive, ev)
+    }
+
+    // MARK: natural movement
+
+    /// No prompt: a live head never holds perfectly still, so it waits for the small movement you make anyway
+    /// (any direction) or a blink. A photo or a phone screen keeps the nose fixed against the eyes however the
+    /// hand moves it, so it never shows that shift. Only after ~2.5s of stillness does it ask for "any" movement.
+    func naturalCheck(seconds: Double, cover: Cover?) async -> (LiveVerdict, Liveness) {
+        var ev = Liveness()
+        let start = Date()
+        var lastIdentity = Date.distantPast
+        var lastDevice = Date.distantPast
+        var poses: [CGPoint] = []
+        var nudged = false
+        let needBlink = cfg.livenessMode == "strict" || (cover == nil && cfg.lockScreenBlink)
+
+        while Date().timeIntervalSince(start) < seconds {
+            try? await Task.sleep(for: .milliseconds(50))
+            guard let frame = newestFrame(), let p = matcher.probe(frame) else { continue }
+            ev.faceFrames += 1
+            ev.eyeOpen.append(p.eyeOpen)
+            ev.eyeTimes.append(Date())
+            if Date().timeIntervalSince(lastDevice) > 0.3 {
+                lastDevice = Date()
+                if matcher.deviceAround(frame, face: p.box) { ev.deviceHits += 1 }
+            }
+            if ev.deviceHits >= 3 { return (.spoof("phone or tablet held up"), ev) }
+            if Date().timeIntervalSince(lastIdentity) > 0.4 {
+                lastIdentity = Date()
+                let l = look(frame)
+                if l.me { ev.meSeen = true }
+                if l.best > ev.best { ev.bestEmbedding = l.bestEmbedding }
+                ev.best = max(ev.best, l.best)
+            }
+            if let pose = matcher.pose(frame) { poses.append(pose) }
+            guard ev.meSeen, poses.count >= 4 else { continue }
+
+            let xs = poses.map(\.x), ys = poses.map(\.y)
+            let moved = max(xs.max()! - xs.min()!, ys.max()! - ys.min()!)
+            let lively = moved >= CGFloat(cfg.naturalMove) || ev.blinked
+            if lively && (!needBlink || ev.blinked) {
+                log("natural: ok (moved \(fmt(Float(moved))) face widths, blink \(ev.blinked ? "yes" : "no"))")
+                if nudged { cover?.setMessage(nil) }
+                return (.live, ev)
+            }
+            if !nudged && Date().timeIntervalSince(start) > 2.5 {
+                nudged = true
+                let msg = needBlink && moved >= CGFloat(cfg.naturalMove) ? "Blink to unlock" : "Move your head a little"
+                hud.show(.scanning(msg)); cover?.setMessage(msg)
+            }
+        }
+        let xs = poses.map(\.x), ys = poses.map(\.y)
+        let moved = poses.isEmpty ? 0 : max(xs.max()! - xs.min()!, ys.max()! - ys.min()!)
+        log("natural: not live yet (moved \(fmt(Float(moved))), \(ev.summary))")
+        cover?.setMessage(nil)
         return (.inconclusive, ev)
     }
 

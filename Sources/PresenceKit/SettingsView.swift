@@ -44,6 +44,7 @@ final class SettingsModel: ObservableObject {
         running = guardian.isRunning
         openAtLogin = SMAppService.mainApp.status == .enabled
         modelInstalled = guardian.modelInstalled
+        refreshPlace()
         photoCount = (try? FileManager.default.contentsOfDirectory(atPath: guardian.intruderPhotos.path))?
             .filter { $0.hasSuffix(".jpg") }.count ?? 0
     }
@@ -123,6 +124,42 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    // MARK: places
+
+    @Published var placeStatus = ""
+    @Published var locationDenied = false
+
+    func refreshPlace() {
+        let w = PlaceWatcher.shared
+        locationDenied = w.denied
+        if config.places.isEmpty && config.schedule.isEmpty { placeStatus = "Normal everywhere"; return }
+        let m = w.mode(config)
+        placeStatus = "\(m.mode.title), \(m.reason)"
+    }
+
+    func addCurrentPlace(named name: String) {
+        let w = PlaceWatcher.shared
+        w.start()
+        let loc = w.location
+        let place = Place(name: name.isEmpty ? (w.ssid ?? "This place") : name,
+                          bssid: w.bssid, latitude: loc?.coordinate.latitude, longitude: loc?.coordinate.longitude)
+        if place.bssid == nil && place.latitude == nil {
+            placeStatus = w.denied ? "Location Services is off for Presence Lock" : "Couldn't see a Wi-Fi router or location yet, try again in a moment"
+            return
+        }
+        config.places.append(place)
+        refreshPlace()
+    }
+
+    func removePlace(_ id: UUID) {
+        Task {
+            // Deleting a place can loosen things, so it needs the owner.
+            guard await PresenceGuard.confirmOwner(reason: "remove a saved place") else { return }
+            config.places.removeAll { $0.id == id }
+            refreshPlace()
+        }
+    }
+
     // MARK: locked apps
 
     func addApp() {
@@ -158,13 +195,14 @@ final class SettingsModel: ObservableObject {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general = "General", face = "Face ID", away = "Away & Cover", intruders = "Intruders", apps = "Locked Apps", advanced = "Advanced"
+    case general = "General", face = "Face ID", away = "Away & Cover", places = "Places & Schedule", intruders = "Intruders", apps = "Locked Apps", advanced = "Advanced"
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .general: "gearshape"
         case .face: "faceid"
         case .away: "figure.walk.departure"
+        case .places: "location.fill"
         case .intruders: "person.crop.circle.badge.exclamationmark"
         case .apps: "lock.app.dashed"
         case .advanced: "slider.horizontal.3"
@@ -175,6 +213,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: .gray
         case .face: .green
         case .away: .blue
+        case .places: .teal
         case .intruders: .red
         case .apps: .indigo
         case .advanced: .gray
@@ -218,6 +257,7 @@ public struct PresenceSettingsView: View {
         case .general: general
         case .face: face
         case .away: away
+        case .places: places
         case .intruders: intruders
         case .apps: apps
         case .advanced: advanced
@@ -323,6 +363,7 @@ public struct PresenceSettingsView: View {
                     Text("1 hour").tag(60.0)
                 }
                 Picker("Live-face check", selection: $model.config.liveCheck) {
+                    Text("Natural (no prompt)").tag("natural")
                     Text("Head turn").tag("headturn")
                     Text("Screen glow").tag("glow")
                 }
@@ -333,11 +374,105 @@ public struct PresenceSettingsView: View {
             } header: {
                 Text("The cover")
             } footer: {
-                Text(model.config.liveCheck == "headturn"
+                Text(model.config.liveCheck == "natural"
+                     ? "Nothing to do: it waits for the small movement or blink you make anyway. A photo on a phone stays rigid however it's held. Only if you sit perfectly still does it ask you to move a little, any direction."
+                     : model.config.liveCheck == "headturn"
                      ? "The notch asks for one random head move (left, right, up or down). A photo can't follow it and a recording can't know which move is coming."
                      : "The glow briefly lights your face so a photo on a phone can't lift the cover. Below 50% it can stop recognizing you in a bright room.")
             }
         }
+    }
+
+    @State private var newPlaceName = ""
+
+    private var places: some View {
+        Group {
+            Section {
+                LabeledContent("Right now") { Text(model.placeStatus).foregroundStyle(.secondary) }
+                if model.locationDenied {
+                    statusRow("Location Services", ok: false, okText: "", badText: "Off for Presence Lock") {
+                        Button("Open Settings…") {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
+                        }
+                    }
+                }
+            } footer: {
+                Text("Relaxed waits longer and only covers the screen. Strict locks the Mac for real as soon as you walk away. Someone else sitting down always locks it, in every mode.")
+            }
+
+            Section {
+                ForEach($model.config.places) { $place in
+                    HStack {
+                        Image(systemName: place.bssid != nil ? "wifi" : "location").foregroundStyle(.secondary).frame(width: 18)
+                        TextField("Name", text: $place.name).labelsHidden()
+                        Picker("", selection: $place.mode) {
+                            ForEach(GuardMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden().frame(width: 110)
+                        Button { model.removePlace(place.id) } label: { Image(systemName: "minus.circle.fill").foregroundStyle(.secondary) }
+                            .buttonStyle(.plain).help("Remove (asks for Touch ID)")
+                    }
+                }
+                HStack {
+                    TextField("Name, like Home", text: $newPlaceName)
+                    Button("Add This Place") { model.addCurrentPlace(named: newPlaceName); newPlaceName = "" }
+                        .glassButton()
+                }
+                if !model.config.places.isEmpty {
+                    Picker("Everywhere else", selection: $model.config.unknownPlaceMode) {
+                        ForEach(GuardMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                }
+            } header: {
+                Text("Places")
+            } footer: {
+                Text("A place is recognized by its Wi-Fi router (not just the network name, which anyone can copy) or by location within about 150 m. macOS needs Location Services for both. Nothing leaves this Mac.")
+            }
+
+            Section {
+                ForEach($model.config.schedule) { $rule in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 4) {
+                            ForEach(1...7, id: \.self) { d in
+                                let on = rule.days.contains(d)
+                                Button(Calendar.current.veryShortWeekdaySymbols[d - 1]) {
+                                    if on { rule.days.removeAll { $0 == d } } else { rule.days.append(d) }
+                                }
+                                .buttonStyle(.plain)
+                                .frame(width: 24, height: 24)
+                                .background(on ? Color.accentColor : Color.secondary.opacity(0.15), in: Circle())
+                                .foregroundStyle(on ? .white : .primary)
+                            }
+                            Spacer()
+                            Button { model.config.schedule.removeAll { $0.id == rule.id } } label: {
+                                Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+                            }.buttonStyle(.plain)
+                        }
+                        HStack {
+                            DatePicker("From", selection: minutesBinding($rule.start), displayedComponents: .hourAndMinute)
+                            DatePicker("to", selection: minutesBinding($rule.end), displayedComponents: .hourAndMinute)
+                            Picker("", selection: $rule.mode) {
+                                Text("Normal").tag(GuardMode.normal)
+                                Text("Strict").tag(GuardMode.strict)
+                            }.labelsHidden().frame(width: 100)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                Button("Add Time Window") { model.config.schedule.append(ScheduleRule()) }
+                    .glassButton()
+            } header: {
+                Text("Schedule")
+            } footer: {
+                Text("A time window can only make things stricter than the place you're at, so a schedule can't be used to switch protection off. An end time before the start runs past midnight.")
+            }
+        }
+    }
+
+    /// Minutes after midnight as a Date for DatePicker.
+    private func minutesBinding(_ m: Binding<Int>) -> Binding<Date> {
+        Binding(get: { Calendar.current.startOfDay(for: Date()).addingTimeInterval(Double(m.wrappedValue) * 60) },
+                set: { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); m.wrappedValue = (c.hour ?? 0) * 60 + (c.minute ?? 0) })
     }
 
     private var intruders: some View {

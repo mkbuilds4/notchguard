@@ -57,12 +57,23 @@ public struct Config: Codable, Equatable {
     public var trustScore: Float = 0.5
     /// Glow brightness over the cover, 0...1 (1 = full-screen solid color).
     public var flashStrength: Float = 0.5
-    /// Live-face check: "headturn" asks for a random head move (default); "glow" flashes the screen.
-    public var liveCheck: String = "headturn"
+    /// Live-face check: "natural" waits for the small movement or blink you make anyway (default);
+    /// "headturn" asks for a random head move; "glow" flashes the screen.
+    public var liveCheck: String = "natural"
+    /// Head movement (face widths, any direction) that counts as a live face in the natural check.
+    public var naturalMove: Float = 0.035
     /// Lock screen also needs a blink (slower by a second or two, much harder to fool with a photo).
     public var lockScreenBlink: Bool = false
     /// Learn a new look of you after a confident live unlock (score at least this), at most every 10 minutes.
     public var learnScore: Float = 0.55
+    /// Saved places, recognized by Wi-Fi router or location; each sets how strict to be there.
+    public var places: [Place] = []
+    /// Mode anywhere that isn't a saved place (only applies once at least one place is saved).
+    public var unknownPlaceMode: GuardMode = .normal
+    /// Time windows that tighten the mode; the strictest of place and schedule wins.
+    public var schedule: [ScheduleRule] = []
+    /// No face in a frame this dark (0...1 average brightness) means "can't tell", not "gone".
+    public var darkFrame: Float = 0.08
     /// Minimum flash response for a real face; tuned on a real face vs. a phone screen.
     public var flashMin: Float = 0.20
 

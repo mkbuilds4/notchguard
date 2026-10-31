@@ -28,6 +28,10 @@ final class Monitor {
     /// Checks in a row that found you while idle; each one stretches the next wait (you're reading, not leaving).
     private var seenInARow = 0
     private var lowPowerCover = false
+    /// Mode from places and the schedule, re-read every check.
+    private(set) var mode: GuardMode = .normal
+    /// Your settings adjusted for the current mode.
+    var active: Config { cfg.applying(mode) }
 
     // Cover mode: the camera runs continuously and we read the newest frame.
     private nonisolated let frameLock = NSLock()
@@ -130,27 +134,38 @@ final class Monitor {
             try? await Task.sleep(for: .seconds(misses > 0 ? 1 : cfg.interval * backoff))
             if FileManager.default.fileExists(atPath: Paths.paused.path) { misses = 0; continue }
             if screenIsLocked() { continue }
+            if !cfg.places.isEmpty || !cfg.schedule.isEmpty {
+                PlaceWatcher.shared.start()
+                mode = PlaceWatcher.shared.mode(cfg).mode
+            } else { mode = .normal }
             let idle = secondsIdle()
-            if idle < cfg.idleGrace { misses = 0; seenInARow = 0; continue }
+            if idle < active.idleGrace { misses = 0; seenInARow = 0; continue }
 
             guard let (r, frames) = await burstLook() else { log("idle \(Int(idle))s: camera unavailable, skipping"); continue }
             if !loggedFirstCheck { loggedFirstCheck = true; log("first check ok: \(r.faces) face(s), best \(fmt(r.best))") }
             if r.me { misses = 0; seenInARow += 1; continue }
             seenInARow = 0
+            // A dark room hides your face from the camera; that's not walking away. After two idle minutes it counts.
+            if r.faces == 0, idle < 120, let b = frames.last.map(brightness), b < cfg.darkFrame {
+                misses = 0
+                log("idle \(Int(idle))s: too dark to tell (brightness \(fmt(b))), not counting as away")
+                continue
+            }
             if r.stranger { intruder("someone else at the Mac (\(r.detail))", frames: frames); continue }
             misses += 1
-            log("idle \(Int(idle))s: \(r.faces == 0 ? "no face" : "not you (\(r.detail))"), miss \(misses)/\(cfg.missesToLock)")
-            if misses >= cfg.missesToLock { enterCover() }
+            log("idle \(Int(idle))s: \(r.faces == 0 ? "no face" : "not you (\(r.detail))"), miss \(misses)/\(active.missesToLock)")
+            if misses >= active.missesToLock { mode == .strict ? lockNow("away (strict mode): locking") : enterCover() }
         }
     }
 
     // MARK: cover mode
 
     func enterCover() {
-        log("away: cover up" + (cfg.coverMinutes > 0 ? ", real lock in \(cfg.coverMinutes)m" : ""))
+        let coverMinutes = active.coverMinutes
+        log("away: cover up" + (coverMinutes > 0 ? ", real lock in \(coverMinutes)m" : "") + (mode == .normal ? "" : " (\(mode.rawValue))"))
         misses = 0; strangerStreak = 0; inputSeenAt = nil
         frameLock.withLock { newest = nil; recent = [] }
-        cover.show(lockAfter: cfg.coverMinutes > 0 ? cfg.coverMinutes * 60 : nil)
+        cover.show(lockAfter: coverMinutes > 0 ? coverMinutes * 60 : nil)
         onEvent?(.away)
         startFrames()
     }
@@ -177,6 +192,22 @@ final class Monitor {
         frameLock.withLock { newest = nil; recent = [] }
     }
 
+    /// Average brightness 0...1 of a BGRA frame, sampled sparsely.
+    nonisolated func brightness(_ pb: CVPixelBuffer) -> Float {
+        CVPixelBufferLockBaseAddress(pb, .readOnly); defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pb) else { return 1 }
+        let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb), row = CVPixelBufferGetBytesPerRow(pb)
+        let p = base.assumingMemoryBound(to: UInt8.self)
+        var sum = 0, n = 0
+        for y in stride(from: 0, to: h, by: 16) {
+            for x in stride(from: 0, to: w, by: 16) {
+                let i = y * row + x * 4
+                sum += Int(p[i]) + Int(p[i + 1]) + Int(p[i + 2]); n += 3
+            }
+        }
+        return n == 0 ? 1 : Float(sum) / Float(n * 255)
+    }
+
     nonisolated func newestFrame() -> CVPixelBuffer? { frameLock.withLock { newest } }
 
     private func coveredStep() async {
@@ -186,7 +217,7 @@ final class Monitor {
         let away = Date().timeIntervalSince(cover.since)
         // Away more than a minute: 5 fps is plenty to notice you coming back, and far cheaper.
         if away > 60 && !lowPowerCover { lowPowerCover = true; camera.setFrameRate(5) }
-        if cfg.coverMinutes > 0 && away >= cfg.coverMinutes * 60 { lockNow("away \(Int(away))s: locking"); return }
+        if active.coverMinutes > 0 && away >= active.coverMinutes * 60 { lockNow("away \(Int(away))s: locking"); return }
 
         guard let frame = frameLock.withLock({ newest }) else { return }
         frameLock.withLock { recent = Array((recent + [frame]).suffix(3)) }

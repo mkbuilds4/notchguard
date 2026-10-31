@@ -33,6 +33,8 @@ cat > "$TMP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
+  <key>NSLocationUsageDescription</key><string>Presence Lock can relax at places you save (like home) and tighten everywhere else. Your location never leaves this Mac.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Presence Lock can relax at places you save (like home) and tighten everywhere else. Your location never leaves this Mac.</string>
   <key>NSCameraUsageDescription</key><string>Presence Lock checks for your face while you're idle and locks the Mac when you've walked away. Frames never leave this Mac and are never saved.</string>
 </dict></plist>
 PLIST
