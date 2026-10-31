@@ -1,5 +1,5 @@
 #!/bin/zsh
-# plock: control Presence Lock.
+# plock: control NotchGuard.
 #   plock enroll      face setup window (~15s)
 #   plock password    store your Mac password for face unlock (Touch ID gated)
 #   plock check       one camera check, prints your match score
@@ -8,9 +8,9 @@
 #   plock status | log | lock-test
 set -euo pipefail
 ROOT="${0:A:h}"
-APP="$ROOT/build/Presence Lock.app"
-[[ -d "$APP" ]] || APP="$ROOT/Presence Lock.app"
-[[ -d "$APP" ]] || APP="/Applications/Presence Lock.app"
+APP="$ROOT/build/NotchGuard.app"
+[[ -d "$APP" ]] || APP="$ROOT/NotchGuard.app"
+[[ -d "$APP" ]] || APP="/Applications/NotchGuard.app"
 BIN="$APP/Contents/MacOS/presence-lock"
 LABEL=dev.mkbuilds.presence-lock
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"

@@ -10,10 +10,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var pauseUntil: Date?
     private var resumeTimer: Timer?
     private let settings = SettingsWindow()
+    private let onboarding = OnboardingWindow()
 
     override init() {
         super.init()
-        item.button?.image = NSImage(systemSymbolName: "faceid", accessibilityDescription: "Presence Lock")
+        item.button?.image = NSImage(systemSymbolName: "faceid", accessibilityDescription: "NotchGuard")
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
@@ -42,10 +43,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
+        if !guardian.faceEnrolled {
+            menu.addItem(action("Set Up NotchGuard…", #selector(setUp)))
+            menu.addItem(.separator())
+        }
         menu.addItem(action("Intruder Photos…", #selector(openPhotos)))
         menu.addItem(action("Settings…", #selector(openSettingsWindow), key: ","))
         menu.addItem(.separator())
-        menu.addItem(action("Quit Presence Lock", #selector(quit), key: "q"))
+        menu.addItem(action("Quit NotchGuard", #selector(quit), key: "q"))
     }
 
     private func statusText() -> String {
@@ -76,21 +81,22 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     private func refreshIcon() {
         let name = !guardian.faceEnrolled || guardian.isPaused ? "faceid" : "faceid"
-        item.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "Presence Lock")
+        item.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "NotchGuard")
         item.button?.appearsDisabled = guardian.isPaused || !guardian.isRunning
     }
 
     // MARK: actions
 
     private func firstRun() {
-        let a = NSAlert()
-        a.messageText = "Set up Presence Lock"
-        a.informativeText = "Presence Lock covers your screen when you walk away and locks your Mac if someone else sits down. It runs entirely on this Mac.\n\nFirst it downloads the face model (about 13 MB, from InsightFace), then a quick face setup in the notch: look at the camera, then slowly tilt your head in a circle."
-        a.addButton(withTitle: "Set Up My Face")
-        a.addButton(withTitle: "Later")
-        NSApp.activate(ignoringOtherApps: true)
-        if a.runModal() == .alertFirstButtonReturn { enroll() }
+        onboarding.onFinish = { [weak self] in
+            guard let self else { return }
+            self.guardian.start()
+            self.refreshIcon()
+        }
+        onboarding.show()
     }
+
+    @objc private func setUp() { firstRun() }
 
     @objc private func enroll() {
         guard guardian.modelInstalled else { installModelThenEnroll(); return }
@@ -126,15 +132,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         guard let w = item.button?.window, !w.occlusionState.contains(.visible) else { return }
         log("menu bar icon is hidden (menu bar full)")
         let n = NSUserNotification()
-        n.title = "Presence Lock is running"
-        n.informativeText = "Your menu bar is full, so its icon is hidden. Open Presence Lock again from Spotlight to see its settings."
+        n.title = "NotchGuard is running"
+        n.informativeText = "Your menu bar is full, so its icon is hidden. Open NotchGuard again from Spotlight to see its settings."
         NSUserNotificationCenter.default.deliver(n)
     }
 
     private func offerFaceUnlock() {
         let a = NSAlert()
         a.messageText = "Unlock with your face too?"
-        a.informativeText = "Presence Lock can unlock the lock screen when it sees you and you blink. It stores your Mac password in your login keychain, loads it only after Touch ID, and types it at the lock screen (this needs the Accessibility permission).\n\nA MacBook camera can't see depth, so this is a convenience, not Face ID."
+        a.informativeText = "NotchGuard can unlock the lock screen when it sees you and you blink. It stores your Mac password in your login keychain, loads it only after Touch ID, and types it at the lock screen (this needs the Accessibility permission).\n\nA MacBook camera can't see depth, so this is a convenience, not Face ID."
         a.addButton(withTitle: "Turn On")
         a.addButton(withTitle: "Not Now")
         NSApp.activate(ignoringOtherApps: true)
@@ -151,7 +157,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func pauseHour() {
         Task {
-            guard await PresenceGuard.confirmOwner(reason: "pause Presence Lock") else { return }
+            guard await PresenceGuard.confirmOwner(reason: "pause NotchGuard") else { return }
             guardian.setPaused(true)
             pauseUntil = Date().addingTimeInterval(3600)
             resumeTimer?.invalidate()
@@ -164,7 +170,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func pauseIndefinitely() {
         Task {
-            guard await PresenceGuard.confirmOwner(reason: "pause Presence Lock") else { return }
+            guard await PresenceGuard.confirmOwner(reason: "pause NotchGuard") else { return }
             guardian.setPaused(true)
             pauseUntil = nil
             refreshIcon()
@@ -185,7 +191,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func openSettingsWindow() {
         Task {
             // Settings can turn protection off, so they need the owner.
-            guard await PresenceGuard.confirmOwner(reason: "open Presence Lock settings") else { return }
+            guard await PresenceGuard.confirmOwner(reason: "open NotchGuard settings") else { return }
             settings.show()
         }
     }
@@ -207,7 +213,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func quit() {
         Task {
             // Tamper protection: someone at your Mac can't just quit it.
-            guard await PresenceGuard.confirmOwner(reason: "quit Presence Lock") else { return }
+            guard await PresenceGuard.confirmOwner(reason: "quit NotchGuard") else { return }
             guardian.stop()
             NSApp.terminate(nil)
         }

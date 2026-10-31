@@ -154,7 +154,7 @@ final class Monitor {
             if r.stranger { intruder("someone else at the Mac (\(r.detail))", frames: frames); continue }
             misses += 1
             log("idle \(Int(idle))s: \(r.faces == 0 ? "no face" : "not you (\(r.detail))"), miss \(misses)/\(active.missesToLock)")
-            if misses >= active.missesToLock { mode == .strict ? lockNow("away (strict mode): locking") : enterCover() }
+            if misses >= active.missesToLock { mode == .strict || cfg.lockInsteadOfCover ? lockNow("away (\(mode == .strict ? "strict mode" : "lock instead of cover")): locking") : enterCover() }
         }
     }
 
@@ -324,7 +324,7 @@ final class Monitor {
             onEvent?(.intruder(photos: photos, reason: "fake face at the lock screen: \(why)"))
             log("INTRUDER at lock screen: fake face, \(why) (\(ev.summary)); face unlock off until you type your password")
             if !cfg.alertTo.isEmpty {
-                Alert.send(to: cfg.alertTo, text: "Presence Lock: someone tried to unlock your Mac with a fake face (\(why)) at \(Date().formatted(date: .omitted, time: .standard)). Face unlock is off until you type your password.", photos: photos)
+                Alert.send(to: cfg.alertTo, text: "NotchGuard: someone tried to unlock your Mac with a fake face (\(why)) at \(Date().formatted(date: .omitted, time: .standard)). Face unlock is off until you type your password.", photos: photos)
             }
         case .inconclusive:
             hud.hide()
@@ -350,7 +350,7 @@ final class Monitor {
         lockNow("INTRUDER: \(why); locking, \(photos.count) photo(s) saved")
         guard !cfg.alertTo.isEmpty else { return }
         let when = Date().formatted(date: .omitted, time: .standard)
-        Alert.send(to: cfg.alertTo, text: "Presence Lock: someone else was at your Mac at \(when). It's locked now.", photos: photos)
+        Alert.send(to: cfg.alertTo, text: "NotchGuard: someone else was at your Mac at \(when). It's locked now.", photos: photos)
     }
 }
 

@@ -143,6 +143,7 @@ extension Config {
             c.idleGrace = max(idleGrace, 30)
             c.missesToLock = max(missesToLock, 3)
             c.coverMinutes = 0
+            c.lockInsteadOfCover = false
         case .normal: break
         case .strict:
             c.idleGrace = min(idleGrace, 5)

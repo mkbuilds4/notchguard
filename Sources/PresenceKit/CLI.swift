@@ -6,11 +6,24 @@ import Foundation
 /// The `plock` subcommands (enroll, check, password, live-test, hud-test, cover-test, lock-test, run).
 @MainActor
 public enum PresenceCLI {
-    public nonisolated static let commands: Set<String> = ["install-model", "run", "enroll", "check", "password", "live-test", "hud-test", "cover-test", "lock-test"]
-    public nonisolated static let interactive: Set<String> = ["enroll", "password"]
+    public nonisolated static let commands: Set<String> = ["install-model", "run", "enroll", "check", "password", "live-test", "hud-test", "cover-test", "lock-test", "onboarding"]
+    public nonisolated static let interactive: Set<String> = ["enroll", "password", "onboarding"]
     private static var keep: [AnyObject] = []
 
     public static func run(_ command: String, args: [String]) async {
+        if command == "onboarding" {
+            // Set PLOCK_HOME to a scratch folder to run it as a brand-new user without touching your setup.
+            let w = OnboardingWindow()
+            w.onFinish = { log("onboarding finished"); exit(0) }
+            keep.append(w)
+            w.show()
+            if let dir = ProcessInfo.processInfo.environment["PLOCK_SNAPSHOTS"] {
+                await w.snapshotSteps(to: URL(fileURLWithPath: dir))
+                log("onboarding snapshots saved to \(dir)")
+                exit(0)
+            }
+            return
+        }
         if command == "install-model" {
             do {
                 try await PresenceGuard.shared.installModel { p in if Int(p * 100) % 25 == 0 { log("model download \(Int(p * 100))%") } }
@@ -23,7 +36,7 @@ public enum PresenceCLI {
         let needsCamera = !["cover-test", "lock-test", "password", "hud-test"].contains(command)
         let cameraOK = needsCamera ? await Camera.authorize() : true
         guard cameraOK else {
-            log("camera access denied: allow Presence Lock in System Settings > Privacy & Security > Camera")
+            log("camera access denied: allow NotchGuard in System Settings > Privacy & Security > Camera")
             exit(2)
         }
         do {
@@ -44,7 +57,7 @@ public enum PresenceCLI {
                     if args.contains("--alert") {
                         let photos = Alert.save(Array(frames.prefix(1)))
                         if m.cfg.alertTo.isEmpty { log("alertTo not set in config.json") }
-                        else { Alert.send(to: m.cfg.alertTo, text: "Presence Lock test alert", photos: photos) }
+                        else { Alert.send(to: m.cfg.alertTo, text: "NotchGuard test alert", photos: photos) }
                         try? await Task.sleep(for: .seconds(15)) // let osascript finish
                     }
                 } else {

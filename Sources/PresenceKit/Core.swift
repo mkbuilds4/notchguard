@@ -7,8 +7,9 @@ import Foundation
 
 public enum Paths {
     public static let support: URL = {
-        let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PresenceLock")
+        // PLOCK_HOME points everything at a scratch folder (testing onboarding as a new user).
+        let u = ProcessInfo.processInfo.environment["PLOCK_HOME"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PresenceLock")
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }()
@@ -66,6 +67,10 @@ public struct Config: Codable, Equatable {
     public var lockScreenBlink: Bool = false
     /// Learn a new look of you after a confident live unlock (score at least this), at most every 10 minutes.
     public var learnScore: Float = 0.55
+    /// The level picked in onboarding or Settings; editing a setting it controls makes it Custom.
+    public var protectionLevel: ProtectionLevel = .custom
+    /// Walking away locks the Mac for real instead of putting the cover up (Maximum does this everywhere).
+    public var lockInsteadOfCover: Bool = false
     /// Saved places, recognized by Wi-Fi router or location; each sets how strict to be there.
     public var places: [Place] = []
     /// Mode anywhere that isn't a saved place (only applies once at least one place is saved).

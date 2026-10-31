@@ -7,7 +7,26 @@ import SwiftUI
 final class SettingsModel: ObservableObject {
     let guardian = PresenceGuard.shared
 
-    @Published var config: Config { didSet { if config != oldValue { guardian.config = config } } }
+    @Published var config: Config {
+        didSet {
+            guard config != oldValue else { return }
+            // A hand edit to something the level controls turns it into Custom.
+            if config.protectionLevel != .custom && ProtectionLevel.matching(config) != config.protectionLevel {
+                config.protectionLevel = .custom
+                return
+            }
+            guardian.config = config
+        }
+    }
+
+    func setLevel(_ level: ProtectionLevel) {
+        guard level != .custom else { return }
+        Task {
+            // Going down a level loosens protection, so it needs the owner.
+            if level.rank < config.protectionLevel.rank, !(await PresenceGuard.confirmOwner(reason: "lower the protection level")) { return }
+            config = config.with(level)
+        }
+    }
     @Published var faceEnrolled = false
     @Published var samples = 0
     @Published var learned = 0
@@ -57,7 +76,7 @@ final class SettingsModel: ObservableObject {
 
     func setPaused(_ on: Bool) {
         Task {
-            if on, !(await PresenceGuard.confirmOwner(reason: "pause Presence Lock")) { refresh(); return }
+            if on, !(await PresenceGuard.confirmOwner(reason: "pause NotchGuard")) { refresh(); return }
             guardian.setPaused(on)
             refresh()
         }
@@ -144,7 +163,7 @@ final class SettingsModel: ObservableObject {
         let place = Place(name: name.isEmpty ? (w.ssid ?? "This place") : name,
                           bssid: w.bssid, latitude: loc?.coordinate.latitude, longitude: loc?.coordinate.longitude)
         if place.bssid == nil && place.latitude == nil {
-            placeStatus = w.denied ? "Location Services is off for Presence Lock" : "Couldn't see a Wi-Fi router or location yet, try again in a moment"
+            placeStatus = w.denied ? "Location Services is off for NotchGuard" : "Couldn't see a Wi-Fi router or location yet, try again in a moment"
             return
         }
         config.places.append(place)
@@ -284,11 +303,17 @@ public struct PresenceSettingsView: View {
                 .padding(.vertical, 6)
             }
             Section {
+                Picker("Protection level", selection: Binding(get: { model.config.protectionLevel }, set: { model.setLevel($0) })) {
+                    ForEach(ProtectionLevel.allCases) { l in
+                        Label(l.title, systemImage: l.symbol).tag(l)
+                            .selectionDisabled(l == .custom)
+                    }
+                }
                 Toggle("Protection on", isOn: Binding(get: { !model.paused }, set: { model.setPaused(!$0) }))
                     .disabled(!model.faceEnrolled)
                 Toggle("Open at login", isOn: Binding(get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
             } footer: {
-                Text("Turning protection off asks for Touch ID, so someone at your Mac can't switch it off.")
+                Text("\(model.config.protectionLevel.summary) Turning protection off or lowering the level asks for Touch ID.")
             }
         }
     }
@@ -390,7 +415,7 @@ public struct PresenceSettingsView: View {
             Section {
                 LabeledContent("Right now") { Text(model.placeStatus).foregroundStyle(.secondary) }
                 if model.locationDenied {
-                    statusRow("Location Services", ok: false, okText: "", badText: "Off for Presence Lock") {
+                    statusRow("Location Services", ok: false, okText: "", badText: "Off for NotchGuard") {
                         Button("Open Settings…") {
                             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
                         }
@@ -614,7 +639,7 @@ public final class SettingsWindow {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 540),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                              backing: .buffered, defer: false)
-            w.title = "Presence Lock"
+            w.title = "NotchGuard"
             w.contentViewController = NSHostingController(rootView: PresenceSettingsView())
             w.setContentSize(NSSize(width: 760, height: 540))
             // A unified toolbar is what lets the sidebar float as a Liquid Glass panel on macOS 26.

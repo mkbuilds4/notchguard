@@ -73,7 +73,7 @@ enum KeyTyper {
     static func unlock(with password: Data) -> Bool {
         guard trusted, let text = String(data: password, encoding: .utf8) else { return false }
         var assertion: IOPMAssertionID = 0
-        IOPMAssertionDeclareUserActivity("Presence Lock face unlock" as CFString, kIOPMUserActiveLocal, &assertion)
+        IOPMAssertionDeclareUserActivity("NotchGuard face unlock" as CFString, kIOPMUserActiveLocal, &assertion)
         Thread.sleep(forTimeInterval: 0.6)
         // Never type a password anywhere but the lock screen.
         guard screenIsLocked() else { log("face unlock: screen not locked at typing time, aborted"); return false }
@@ -130,11 +130,11 @@ final class PasswordSetup: NSObject, NSWindowDelegate {
     let status = NSTextField(labelWithString: "")
 
     func begin() {
-        window.title = "Presence Lock: face unlock"
+        window.title = "NotchGuard: face unlock"
         window.delegate = self
         let v = NSView(frame: window.contentRect(forFrameRect: window.frame))
         let text = NSTextField(wrappingLabelWithString:
-            "To unlock when it sees you, Presence Lock types your Mac password at the lock screen. It's checked against your account, stored in your login keychain, and only loaded after Touch ID each time Presence Lock starts.")
+            "To unlock when it sees you, NotchGuard types your Mac password at the lock screen. It's checked against your account, stored in your login keychain, and only loaded after Touch ID each time NotchGuard starts.")
         text.frame = NSRect(x: 30, y: 140, width: 380, height: 80)
         field.placeholderString = "Mac login password"
         status.frame = NSRect(x: 30, y: 62, width: 380, height: 20)
@@ -160,7 +160,7 @@ final class PasswordSetup: NSObject, NSWindowDelegate {
         guard Credentials.save(pw) else { status.stringValue = "Couldn't save to the keychain."; return }
         field.stringValue = ""
         log("face unlock: password stored")
-        status.stringValue = KeyTyper.trusted ? "Saved. Face unlock is ready." : "Saved. Now allow Presence Lock under Accessibility."
+        status.stringValue = KeyTyper.trusted ? "Saved. Face unlock is ready." : "Saved. Now allow NotchGuard under Accessibility."
         if !KeyTyper.trusted { KeyTyper.promptForAccess() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [self] in done(true) }
     }

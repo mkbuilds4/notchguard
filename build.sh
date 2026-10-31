@@ -1,9 +1,9 @@
 #!/bin/zsh
-# Builds "Presence Lock.app" (ad-hoc signed). Camera access needs a real bundle with
+# Builds "NotchGuard.app" (ad-hoc signed). Camera access needs a real bundle with
 # NSCameraUsageDescription, so the binary is never run bare.
 set -euo pipefail
 cd "${0:A:h}"
-APP="build/Presence Lock.app"
+APP="build/NotchGuard.app"
 TMP="build/.staging.app"
 mkdir -p build; rm -rf "$TMP"; mkdir -p "$TMP/Contents/MacOS" "$TMP/Contents/Resources"
 
@@ -26,17 +26,17 @@ cat > "$TMP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleIdentifier</key><string>dev.mkbuilds.presence-lock</string>
-  <key>CFBundleName</key><string>Presence Lock</string>
+  <key>CFBundleName</key><string>NotchGuard</string>
   <key>CFBundleExecutable</key><string>presence-lock</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSLocationUsageDescription</key><string>Presence Lock can relax at places you save (like home) and tighten everywhere else. Your location never leaves this Mac.</string>
-  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>Presence Lock can relax at places you save (like home) and tighten everywhere else. Your location never leaves this Mac.</string>
-  <key>NSLocationWhenInUseUsageDescription</key><string>Presence Lock can relax at places you save (like home) and tighten everywhere else. Your location never leaves this Mac.</string>
-  <key>NSCameraUsageDescription</key><string>Presence Lock checks for your face while you're idle and locks the Mac when you've walked away. Frames never leave this Mac and are never saved.</string>
+  <key>NSLocationUsageDescription</key><string>NotchGuard can relax at places you save (like home) and tighten everywhere else. Your location never leaves this Mac.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>NotchGuard can relax at places you save (like home) and tighten everywhere else. Your location never leaves this Mac.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>NotchGuard can relax at places you save (like home) and tighten everywhere else. Your location never leaves this Mac.</string>
+  <key>NSCameraUsageDescription</key><string>NotchGuard checks for your face while you're idle and locks the Mac when you've walked away. Frames never leave this Mac and are never saved.</string>
 </dict></plist>
 PLIST
 
