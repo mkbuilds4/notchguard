@@ -19,7 +19,7 @@ final class FaceMatcher {
 
     init() throws {
         guard let url = FaceMatcher.modelURL else {
-            throw NSError(domain: "PresenceLock", code: 1, userInfo: [NSLocalizedDescriptionKey: "face model not installed"])
+            throw NSError(domain: "NotchGuard", code: 1, userInfo: [NSLocalizedDescriptionKey: "face model not installed"])
         }
         let cfg = MLModelConfiguration()
         cfg.computeUnits = .cpuAndNeuralEngine

@@ -11,11 +11,12 @@ ROOT="${0:A:h}"
 APP="$ROOT/build/NotchGuard.app"
 [[ -d "$APP" ]] || APP="$ROOT/NotchGuard.app"
 [[ -d "$APP" ]] || APP="/Applications/NotchGuard.app"
-BIN="$APP/Contents/MacOS/presence-lock"
-LABEL=dev.mkbuilds.presence-lock
+BIN="$APP/Contents/MacOS/NotchGuard"
+LABEL=dev.mkbuilds.notchguard
+OLD_LABEL=dev.mkbuilds.presence-lock  # before the rename; removed on start
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-SUPPORT="$HOME/Library/Application Support/PresenceLock"
-LOG="$HOME/Library/Logs/PresenceLock.log"
+SUPPORT="$HOME/Library/Application Support/NotchGuard"
+LOG="$HOME/Library/Logs/NotchGuard.log"
 
 run_app() { # through LaunchServices so the camera permission belongs to the app
   local before=0; [[ -f "$LOG" ]] && before=$(wc -l < "$LOG")
@@ -41,6 +42,8 @@ case "${1:-status}" in
   <key>StandardErrorPath</key><string>$LOG</string>
 </dict></plist>
 PL
+    launchctl bootout gui/$(id -u)/$OLD_LABEL 2>/dev/null || true
+    rm -f "$HOME/Library/LaunchAgents/$OLD_LABEL.plist"
     launchctl bootout gui/$(id -u)/$LABEL 2>/dev/null || true
     launchctl bootstrap gui/$(id -u) "$PLIST"
     echo "started (runs at login). plock log to watch." ;;
@@ -53,7 +56,7 @@ PL
     launchctl print gui/$(id -u)/$LABEL 2>/dev/null | grep -E "state|pid =" || echo "not running"
     [[ -f "$SUPPORT/paused" ]] && echo "paused"
     [[ -f "$SUPPORT/profile.json" ]] && echo "face enrolled" || echo "no face enrolled"
-    ps -o rss=,command= -p $(pgrep -f "$BIN run" || echo 1) 2>/dev/null | awk '/presence-lock/{printf "RAM: %.1f MB\n", $1/1024}' ;;
+    ps -o rss=,command= -p $(pgrep -f "$BIN run" || echo 1) 2>/dev/null | awk '/NotchGuard/{printf "RAM: %.1f MB\n", $1/1024}' ;;
   log) tail -f "$LOG" ;;
   *) sed -n '2,8p' "$0"; exit 1 ;;
 esac

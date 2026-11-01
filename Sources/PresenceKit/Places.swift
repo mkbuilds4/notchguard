@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - Places and schedule
 
-/// How hard Presence Lock guards right now.
+/// How hard NotchGuard guards right now.
 public enum GuardMode: String, Codable, CaseIterable, Comparable {
     /// Longer wait before checking, cover only (never the real lock). Strangers still lock the Mac.
     case relaxed

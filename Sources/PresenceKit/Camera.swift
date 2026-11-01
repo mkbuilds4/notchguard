@@ -24,13 +24,13 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
             ?? AVCaptureDevice.default(for: .video)
         guard let device else {
-            throw NSError(domain: "PresenceLock", code: 2, userInfo: [NSLocalizedDescriptionKey: "no camera"])
+            throw NSError(domain: "NotchGuard", code: 2, userInfo: [NSLocalizedDescriptionKey: "no camera"])
         }
         session.beginConfiguration()
         if session.canSetSessionPreset(preset) { session.sessionPreset = preset }
         let input = try AVCaptureDeviceInput(device: device)
         guard session.canAddInput(input) else {
-            throw NSError(domain: "PresenceLock", code: 3, userInfo: [NSLocalizedDescriptionKey: "camera input rejected"])
+            throw NSError(domain: "NotchGuard", code: 3, userInfo: [NSLocalizedDescriptionKey: "camera input rejected"])
         }
         session.addInput(input)
         let output = AVCaptureVideoDataOutput()

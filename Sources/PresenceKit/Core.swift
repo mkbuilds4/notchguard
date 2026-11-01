@@ -8,15 +8,26 @@ import Foundation
 public enum Paths {
     public static let support: URL = {
         // PLOCK_HOME points everything at a scratch folder (testing onboarding as a new user).
-        let u = ProcessInfo.processInfo.environment["PLOCK_HOME"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PresenceLock")
-        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
-        return u
+        if let home = ProcessInfo.processInfo.environment["PLOCK_HOME"] {
+            let u = URL(fileURLWithPath: home)
+            try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+            return u
+        }
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return moved(dir.appendingPathComponent("PresenceLock"), to: dir.appendingPathComponent("NotchGuard"))
     }()
     public static let profile = support.appendingPathComponent("profile.json")
     public static let config = support.appendingPathComponent("config.json")
     public static let paused = support.appendingPathComponent("paused")
-    public static let log = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/PresenceLock.log")
+    public static let log = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/NotchGuard.log")
+
+    /// A folder from before the rename to NotchGuard, moved to its new name the first time it's needed.
+    static func moved(_ old: URL, to new: URL) -> URL {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: new.path), fm.fileExists(atPath: old.path) { try? fm.moveItem(at: old, to: new) }
+        try? fm.createDirectory(at: new, withIntermediateDirectories: true)
+        return new
+    }
 }
 
 public struct Config: Codable, Equatable {

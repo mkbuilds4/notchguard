@@ -10,7 +10,7 @@ import Security
 /// Your Mac login password in the login keychain, readable only by this signed app,
 /// and only loaded into memory after Touch ID (or your password) approves it once per session.
 enum Credentials {
-    private static let service = "dev.mkbuilds.presence-lock"
+    private static let service = "dev.mkbuilds.notchguard"
     private static let account = "login-password"
 
     static var isStored: Bool {
@@ -30,7 +30,7 @@ enum Credentials {
     static func save(_ password: String) -> Bool {
         delete()
         let add: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                  kSecAttrAccount as String: account, kSecAttrLabel as String: "Presence Lock face unlock",
+                                  kSecAttrAccount as String: account, kSecAttrLabel as String: "NotchGuard face unlock",
                                   kSecValueData as String: Data(password.utf8)]
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }

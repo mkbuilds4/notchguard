@@ -222,6 +222,8 @@ struct OnboardingView: View {
             hero("arrow.down.circle", "Face model",
                  "NotchGuard uses InsightFace's MobileFaceNet to tell you apart from other people. Its license doesn't allow shipping it inside the app, so it's downloaded once (about 13 MB), checked, and converted on this Mac.",
                  color: .blue)
+            Link("InsightFace licenses the model for non-commercial use", destination: ModelInstaller.licenseURL)
+                .font(.callout)
             if model.modelInstalled {
                 Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             } else if let p = model.modelProgress {

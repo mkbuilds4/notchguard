@@ -2,12 +2,11 @@ import CoreImage
 import CoreVideo
 import Foundation
 
-/// Intruder evidence: saves frames to ~/Pictures/Presence Lock and texts them over iMessage.
+/// Intruder evidence: saves frames to ~/Pictures/NotchGuard and texts them over iMessage.
 enum Alert {
     static let folder: URL = {
-        let u = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/Presence Lock")
-        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
-        return u
+        let pics = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures")
+        return Paths.moved(pics.appendingPathComponent("Presence Lock"), to: pics.appendingPathComponent("NotchGuard"))
     }()
 
     static func save(_ frames: [CVPixelBuffer]) -> [URL] {
@@ -24,7 +23,7 @@ enum Alert {
         }
     }
 
-    /// Sends through the Messages app (first run asks to let Presence Lock control Messages).
+    /// Sends through the Messages app (first run asks to let NotchGuard control Messages).
     static func send(to recipient: String, text: String, photos: [URL]) {
         func q(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
         let sends = ([("send \(q(text)) to buddyRef")] + photos.map { "send (POSIX file \(q($0.path))) to buddyRef" })

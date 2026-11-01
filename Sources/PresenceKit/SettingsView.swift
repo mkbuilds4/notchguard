@@ -643,7 +643,7 @@ public final class SettingsWindow {
             w.contentViewController = NSHostingController(rootView: PresenceSettingsView())
             w.setContentSize(NSSize(width: 760, height: 540))
             // A unified toolbar is what lets the sidebar float as a Liquid Glass panel on macOS 26.
-            w.toolbar = NSToolbar(identifier: "PresenceLockSettings")
+            w.toolbar = NSToolbar(identifier: "NotchGuardSettings")
             w.toolbarStyle = .unified
             w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false

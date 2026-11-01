@@ -1,6 +1,7 @@
 import AppKit
 import PresenceKit
 import ServiceManagement
+import Sparkle
 
 /// The standalone app: a menu bar icon with status, pause, setup and Touch ID-protected quit.
 @MainActor
@@ -11,6 +12,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var resumeTimer: Timer?
     private let settings = SettingsWindow()
     private let onboarding = OnboardingWindow()
+    /// Checks the appcast daily. Only builds with a feed (build.sh adds one) look for updates.
+    private let updater = SPUStandardUpdaterController(
+        startingUpdater: Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil, updaterDelegate: nil, userDriverDelegate: nil)
 
     override init() {
         super.init()
@@ -49,6 +53,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
         menu.addItem(action("Intruder Photos…", #selector(openPhotos)))
         menu.addItem(action("Settings…", #selector(openSettingsWindow), key: ","))
+        let update = NSMenuItem(title: "Check for Updates…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        update.target = updater
+        menu.addItem(update)
         menu.addItem(.separator())
         menu.addItem(action("Quit NotchGuard", #selector(quit), key: "q"))
     }
