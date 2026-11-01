@@ -19,7 +19,7 @@ if [[ -z "${NO_BUNDLED_MODEL:-}" ]]; then
   [[ -d models/FaceEmbedder.mlpackage ]] || { echo "missing models/FaceEmbedder.mlpackage (see tools/convert_model.py)"; exit 1; }
   xcrun coremlcompiler compile models/FaceEmbedder.mlpackage "$TMP/Contents/Resources" >/dev/null
 fi
-
+cp assets/AppIcon.icns "$TMP/Contents/Resources/AppIcon.icns"  # redraw with: swift tools/make_icon.swift
 
 cat > "$TMP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -29,6 +29,7 @@ cat > "$TMP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>NotchGuard</string>
   <key>CFBundleExecutable</key><string>presence-lock</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>

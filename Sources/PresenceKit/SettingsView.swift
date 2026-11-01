@@ -10,10 +10,10 @@ final class SettingsModel: ObservableObject {
     @Published var config: Config {
         didSet {
             guard config != oldValue else { return }
-            // A hand edit to something the level controls turns it into Custom.
+            // A hand edit to something the level controls turns it into Custom. (Setting config here
+            // doesn't re-run didSet, so fall through and hand the edit to the guardian.)
             if config.protectionLevel != .custom && ProtectionLevel.matching(config) != config.protectionLevel {
                 config.protectionLevel = .custom
-                return
             }
             guardian.config = config
         }
