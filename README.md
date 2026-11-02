@@ -4,6 +4,8 @@
 
 Your Mac's camera already sits in the notch. NotchGuard uses it to notice when you walk away and when someone else sits down.
 
+<p align="center"><img src="assets/demo.gif" width="880" alt="You step away and a cover grows out of the notch over the screen, counting down to the real lock. You come back, the notch checks your face and says Welcome back, and the cover draws back into the notch."></p>
+
 - **Walk away** and a cover slides over your screen, then the Mac locks for real.
 - **Someone else sits down** and the Mac locks right away. NotchGuard takes their photo and texts it to you over iMessage.
 - **Come back** and your face unlocks it, at the cover and (optionally) at the real lock screen.
