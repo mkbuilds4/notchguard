@@ -179,6 +179,25 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    // MARK: cover
+
+    var coverPhotoName: String { URL(fileURLWithPath: config.coverPhoto).lastPathComponent }
+
+    /// Copies the picked picture into the support folder, so moving or deleting the original doesn't blank the cover.
+    func chooseCoverPhoto() {
+        let panel = NSOpenPanel()
+        panel.directoryURL = URL(fileURLWithPath: "/System/Library/Desktop Pictures")
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Use Photo"
+        guard panel.runModal() == .OK, let src = panel.url else { return }
+        let fm = FileManager.default
+        // A new name each time, so a new pick never overwrites the picture in use.
+        let dest = Paths.support.appendingPathComponent("cover-\(UUID().uuidString.prefix(8)).\(src.pathExtension.lowercased())")
+        do { try fm.copyItem(at: src, to: dest) } catch { log("cover photo copy failed: \(error.localizedDescription)"); return }
+        if !config.coverPhoto.isEmpty, config.coverPhoto.hasPrefix(Paths.support.path) { try? fm.removeItem(atPath: config.coverPhoto) }
+        config.coverPhoto = dest.path
+    }
+
     // MARK: locked apps
 
     func addApp() {
@@ -405,6 +424,71 @@ public struct PresenceSettingsView: View {
                      ? "The notch asks for one random head move (left, right, up or down). A photo can't follow it and a recording can't know which move is coming."
                      : "The glow briefly lights your face so a photo on a phone can't lift the cover. Below 50% it can stop recognizing you in a bright room.")
             }
+
+            Section {
+                Picker("Background", selection: $model.config.coverBackground) {
+                    Text("Colors").tag("colors")
+                    Text("My desktop picture").tag("desktop")
+                    Text("A photo").tag("photo")
+                }
+                if model.config.coverBackground == "colors" {
+                    Picker("Colors", selection: $model.config.coverTheme) {
+                        Text("Aurora").tag("aurora")
+                        Text("Sunset").tag("sunset")
+                        Text("Forest").tag("forest")
+                        Text("Midnight").tag("midnight")
+                        Text("Mono").tag("mono")
+                    }
+                    Toggle("Blur the desktop behind it", isOn: $model.config.coverBlur)
+                } else {
+                    if model.config.coverBackground == "photo" {
+                        LabeledContent("Photo") {
+                            HStack {
+                                Text(model.config.coverPhoto.isEmpty ? "None" : model.coverPhotoName).foregroundStyle(.secondary)
+                                Button("Choose…") { model.chooseCoverPhoto() }
+                            }
+                        }
+                    }
+                    sliderRow("Darken", value: $model.config.coverDim, in: 0...0.8, step: 0.05, unit: "", percent: true)
+                }
+                Picker("Clock style", selection: $model.config.coverClockStyle) {
+                    Text("Thin").tag("thin")
+                    Text("Bold").tag("bold")
+                    Text("Serif").tag("serif")
+                    Text("Monospaced").tag("mono")
+                }
+                Picker("Clock size", selection: $model.config.coverClockSize) {
+                    Text("Small").tag("small")
+                    Text("Medium").tag("medium")
+                    Text("Large").tag("large")
+                }
+                Toggle("Show time and date", isOn: $model.config.coverShowClock)
+                TextField("Message", text: $model.config.coverMessage, prompt: Text("Back in 10"))
+                Toggle("Show \u{201C}Sit back down\u{201D} hint", isOn: $model.config.coverShowHint)
+                Button("Preview for 5 Seconds") { previewCover() }
+            } header: {
+                Text("How the cover looks")
+            } footer: {
+                Text(model.config.coverBackground == "colors"
+                     ? "Turning off the blur hides what's on screen completely instead of frosting it."
+                     : model.config.coverBackground == "desktop"
+                     ? "Uses each screen's desktop picture. Dynamic and aerial pictures can't be shown, so those fall back to Colors."
+                     : "Any JPEG, PNG or HEIC. The macOS pictures in Desktop Pictures work too.")
+            }
+        }
+    }
+
+    @State private var previewing: Cover?
+
+    private func previewCover() {
+        guard previewing == nil else { return }
+        let cover = Cover()
+        previewing = cover
+        cover.show(lockAfter: nil)
+        cover.setMessage("Preview: closes on its own")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            cover.hide()
+            previewing = nil
         }
     }
 

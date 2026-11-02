@@ -17,6 +17,8 @@ final class Cover {
     private var hints: [NSTextField] = []
     private var flashes: [CALayer] = []
     private let defaultHint = "Sit back down and this clears on its own"
+    /// Read on each show, so Settings changes apply to the next cover.
+    private var style = Config()
 
     var isShown: Bool { !windows.isEmpty }
     var since: Date { shownAt }
@@ -27,6 +29,7 @@ final class Cover {
         guard !isShown else { return }
         lockedApp = app
         self.actions = actions
+        style = Config.load()
         shownAt = Date()
         deadline = lockAfter.map { shownAt.addingTimeInterval($0) }
         for screen in NSScreen.screens { windows.append(makeWindow(screen)) }
@@ -63,7 +66,8 @@ final class Cover {
     }
 
     func setMessage(_ text: String?) {
-        hints.forEach { $0.stringValue = text ?? defaultHint }
+        let shown = text ?? (lockedApp != nil || style.coverShowHint ? defaultHint : "")
+        hints.forEach { $0.stringValue = shown }
     }
 
     private func tick() {
@@ -108,17 +112,32 @@ final class Cover {
         art.autoresizingMask = [.width, .height]
         let root = art.layer!
 
-        // Dark wash: the blur alone can leave large text legible.
+        let theme = CoverTheme.named(style.coverTheme)
+        let picture = backgroundPicture(for: screen)
+
+        if let picture {
+            // A plain picture, darkened enough to read the clock over it.
+            let image = CALayer()
+            image.frame = bounds
+            image.contents = picture
+            image.contentsGravity = .resizeAspectFill
+            image.masksToBounds = true
+            root.addSublayer(image)
+            let dim = CALayer()
+            dim.frame = bounds
+            dim.backgroundColor = NSColor.black.withAlphaComponent(style.coverDim).cgColor
+            root.addSublayer(dim)
+        }
+
+        // Dark wash: the blur alone can leave large text legible. Without the blur it's opaque.
         let wash = CAGradientLayer()
         wash.frame = bounds
-        wash.colors = [NSColor(red: 0.04, green: 0.05, blue: 0.09, alpha: 0.80).cgColor,
-                       NSColor(red: 0.07, green: 0.06, blue: 0.13, alpha: 0.86).cgColor]
+        wash.colors = theme.wash.map { $0.withAlphaComponent(style.coverBlur ? $0.alphaComponent : 1).cgColor }
         wash.startPoint = CGPoint(x: 0, y: 1); wash.endPoint = CGPoint(x: 1, y: 0)
-        root.addSublayer(wash)
+        if picture == nil { root.addSublayer(wash) }
 
-        // Two slow-drifting glows.
-        for (i, color) in [NSColor(red: 0.20, green: 0.45, blue: 0.95, alpha: 0.35),
-                           NSColor(red: 0.85, green: 0.35, blue: 0.65, alpha: 0.25)].enumerated() {
+        // Slow-drifting glows (up to two).
+        for (i, color) in (picture == nil ? theme.glows : []).prefix(2).enumerated() {
             let d = max(bounds.width, bounds.height) * 0.7
             let glow = CAGradientLayer()
             glow.type = .radial
@@ -144,16 +163,29 @@ final class Cover {
             l.textColor = NSColor.white.withAlphaComponent(alpha)
             l.alignment = .center
             l.translatesAutoresizingMaskIntoConstraints = false
+            if picture != nil {
+                // Busy pictures swallow small text; a soft shadow keeps it readable.
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.6)
+                shadow.shadowBlurRadius = 8
+                shadow.shadowOffset = .zero
+                l.shadow = shadow
+            }
             return l
         }
         let clock = label(min(160, bounds.width / 8), .ultraLight, alpha: 0.95)
+        clock.font = clockFont(size: min(160, bounds.width / 8) * (style.coverClockSize == "small" ? 0.5 : style.coverClockSize == "medium" ? 0.75 : 1))
         let date = label(22, .regular, alpha: 0.7)
+        let message = label(20, .medium, alpha: 0.85)
+        message.stringValue = lockedApp == nil ? style.coverMessage : ""
+        message.isHidden = message.stringValue.isEmpty
+        if lockedApp == nil && !style.coverShowClock { clock.isHidden = true; date.isHidden = true }
         let status = label(15, .medium, alpha: 0.55)
         let hint = label(13, .regular, alpha: 0.4)
-        hint.stringValue = lockedApp == nil ? defaultHint : "Look at the camera to open it"
+        hint.stringValue = lockedApp == nil ? (style.coverShowHint ? defaultHint : "") : "Look at the camera to open it"
         if lockedApp != nil { clock.font = .systemFont(ofSize: 56, weight: .light) }
 
-        var views: [NSView] = [clock, date, NSView(), status, hint]
+        var views: [NSView] = [clock, date, message, NSView(), status, hint]
         if let app = lockedApp {
             let icon = NSImageView(image: app.icon)
             icon.translatesAutoresizingMaskIntoConstraints = false
@@ -174,7 +206,8 @@ final class Cover {
         let stack = NSStackView(views: views)
         stack.orientation = .vertical
         stack.spacing = 10
-        stack.setCustomSpacing(40, after: date)
+        stack.setCustomSpacing(message.isHidden ? 40 : 14, after: date)
+        stack.setCustomSpacing(40, after: message)
         stack.translatesAutoresizingMaskIntoConstraints = false
         art.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -192,10 +225,59 @@ final class Cover {
         flashes.append(flash)
 
         let content = NSView(frame: bounds)
-        content.addSubview(blur)
+        if style.coverBlur && picture == nil { content.addSubview(blur) }
         content.addSubview(art)
         w.contentView = content
         return w
+    }
+
+    /// The picture for this screen, or nil for the color theme (also when the file can't be read,
+    /// like a dynamic or aerial desktop picture).
+    private func backgroundPicture(for screen: NSScreen) -> NSImage? {
+        let url: URL?
+        switch style.coverBackground {
+        case "desktop": url = NSWorkspace.shared.desktopImageURL(for: screen)
+        case "photo": url = style.coverPhoto.isEmpty ? nil : URL(fileURLWithPath: style.coverPhoto)
+        default: url = nil
+        }
+        return url.flatMap { NSImage(contentsOf: $0) }.flatMap { $0.isValid ? $0 : nil }
+    }
+
+    private func clockFont(size: CGFloat) -> NSFont {
+        let (weight, design): (NSFont.Weight, NSFontDescriptor.SystemDesign) = switch style.coverClockStyle {
+        case "bold": (.semibold, .rounded)
+        case "serif": (.regular, .serif)
+        case "mono": (.light, .monospaced)
+        default: (.ultraLight, .rounded)
+        }
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        return base.fontDescriptor.withDesign(design).flatMap { NSFont(descriptor: $0, size: size) } ?? base
+    }
+}
+
+/// Wash and glow colors for the cover, picked in Settings.
+struct CoverTheme {
+    let wash: [NSColor]
+    let glows: [NSColor]
+
+    static func named(_ name: String) -> CoverTheme {
+        func c(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat) -> NSColor { NSColor(red: r, green: g, blue: b, alpha: a) }
+        let night = [c(0.04, 0.05, 0.09, 0.80), c(0.07, 0.06, 0.13, 0.86)]
+        switch name {
+        case "sunset":
+            return CoverTheme(wash: [c(0.10, 0.04, 0.06, 0.80), c(0.12, 0.06, 0.04, 0.86)],
+                              glows: [c(0.98, 0.45, 0.25, 0.35), c(0.90, 0.25, 0.45, 0.25)])
+        case "forest":
+            return CoverTheme(wash: [c(0.03, 0.08, 0.06, 0.80), c(0.04, 0.07, 0.09, 0.86)],
+                              glows: [c(0.20, 0.75, 0.50, 0.30), c(0.25, 0.55, 0.85, 0.22)])
+        case "midnight":
+            return CoverTheme(wash: night, glows: [])
+        case "mono":
+            return CoverTheme(wash: [c(0.06, 0.06, 0.06, 0.82), c(0.09, 0.09, 0.09, 0.88)],
+                              glows: [c(1, 1, 1, 0.10), c(1, 1, 1, 0.06)])
+        default:
+            return CoverTheme(wash: night, glows: [c(0.20, 0.45, 0.95, 0.35), c(0.85, 0.35, 0.65, 0.25)])
+        }
     }
 }
 

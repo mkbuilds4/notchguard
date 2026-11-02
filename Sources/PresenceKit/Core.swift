@@ -92,6 +92,26 @@ public struct Config: Codable, Equatable {
     public var darkFrame: Float = 0.08
     /// Minimum flash response for a real face; tuned on a real face vs. a phone screen.
     public var flashMin: Float = 0.20
+    /// Cover colors: "aurora" (blue and pink glows), "sunset", "forest", "midnight" (no glows) or "mono".
+    public var coverTheme: String = "aurora"
+    /// Line shown on the cover under the date, like "Back in 10"; empty = none.
+    public var coverMessage: String = ""
+    /// Show the time and date on the cover (off leaves only your message and the countdown).
+    public var coverShowClock: Bool = true
+    /// Frost the desktop behind the cover; off makes it a solid wash.
+    public var coverBlur: Bool = true
+    /// What's behind the cover: "colors" (the theme), "desktop" (each screen's desktop picture) or "photo" (`coverPhoto`).
+    public var coverBackground: String = "desktop"
+    /// Picture for the "photo" background; Settings copies the chosen file into the support folder.
+    public var coverPhoto: String = ""
+    /// Darkening over a picture background so the text stays readable, 0...1.
+    public var coverDim: Double = 0.35
+    /// Clock font: "thin", "bold", "serif" or "mono".
+    public var coverClockStyle: String = "thin"
+    /// Clock size: "small", "medium" or "large".
+    public var coverClockSize: String = "large"
+    /// Show "Sit back down and this clears on its own" (prompts during a face check still show).
+    public var coverShowHint: Bool = true
 
     /// Missing keys fall back to defaults, and the file is rewritten so new settings show up in it.
     public static func load() -> Config {
