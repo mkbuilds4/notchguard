@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import ServiceManagement
 import SwiftUI
 
@@ -47,6 +48,7 @@ final class SettingsModel: ObservableObject {
     init() {
         config = PresenceGuard.shared.config
         refresh()
+        refreshCoverThumbs()
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
@@ -183,6 +185,26 @@ final class SettingsModel: ObservableObject {
 
     var coverPhotoName: String { URL(fileURLWithPath: config.coverPhoto).lastPathComponent }
 
+    /// Small copies of the desktop picture and the cover photo for the background tiles.
+    @Published var desktopThumb: NSImage?
+    @Published var photoThumb: NSImage?
+
+    func refreshCoverThumbs() {
+        desktopThumb = NSScreen.main.flatMap { NSWorkspace.shared.desktopImageURL(for: $0) }.flatMap(Self.thumbnail)
+        photoThumb = config.coverPhoto.isEmpty ? nil : Self.thumbnail(URL(fileURLWithPath: config.coverPhoto))
+    }
+
+    /// Decodes at thumbnail size; a full desktop picture can be 6K.
+    private static func thumbnail(_ url: URL) -> NSImage? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 320,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+              ] as CFDictionary) else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
+
     /// Copies the picked picture into the support folder, so moving or deleting the original doesn't blank the cover.
     func chooseCoverPhoto() {
         let panel = NSOpenPanel()
@@ -196,6 +218,8 @@ final class SettingsModel: ObservableObject {
         do { try fm.copyItem(at: src, to: dest) } catch { log("cover photo copy failed: \(error.localizedDescription)"); return }
         if !config.coverPhoto.isEmpty, config.coverPhoto.hasPrefix(Paths.support.path) { try? fm.removeItem(atPath: config.coverPhoto) }
         config.coverPhoto = dest.path
+        config.coverBackground = "photo"
+        refreshCoverThumbs()
     }
 
     // MARK: locked apps
@@ -426,26 +450,15 @@ public struct PresenceSettingsView: View {
             }
 
             Section {
-                Picker("Background", selection: $model.config.coverBackground) {
-                    Text("Colors").tag("colors")
-                    Text("My desktop picture").tag("desktop")
-                    Text("A photo").tag("photo")
-                }
+                backgroundTiles
                 if model.config.coverBackground == "colors" {
-                    Picker("Colors", selection: $model.config.coverTheme) {
-                        Text("Aurora").tag("aurora")
-                        Text("Sunset").tag("sunset")
-                        Text("Forest").tag("forest")
-                        Text("Midnight").tag("midnight")
-                        Text("Mono").tag("mono")
-                    }
                     Toggle("Blur the desktop behind it", isOn: $model.config.coverBlur)
                 } else {
-                    if model.config.coverBackground == "photo" {
+                    if model.config.coverBackground == "photo" && !model.config.coverPhoto.isEmpty {
                         LabeledContent("Photo") {
                             HStack {
-                                Text(model.config.coverPhoto.isEmpty ? "None" : model.coverPhotoName).foregroundStyle(.secondary)
-                                Button("Choose…") { model.chooseCoverPhoto() }
+                                Text(model.coverPhotoName).foregroundStyle(.secondary)
+                                Button("Choose Another…") { model.chooseCoverPhoto() }
                             }
                         }
                     }
@@ -479,6 +492,64 @@ public struct PresenceSettingsView: View {
     }
 
     @State private var previewing: Cover?
+
+    private static let themes = [("aurora", "Aurora"), ("sunset", "Sunset"), ("forest", "Forest"), ("midnight", "Midnight"), ("mono", "Mono")]
+
+    /// Every background as a small picture of itself: the color themes, your desktop picture and your photo.
+    private var backgroundTiles: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Background")
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 12)], spacing: 12) {
+                ForEach(Self.themes, id: \.0) { id, name in
+                    tile(name, selected: model.config.coverBackground == "colors" && model.config.coverTheme == id) {
+                        ThemeSwatch(theme: CoverTheme.named(id))
+                    } pick: {
+                        model.config.coverBackground = "colors"
+                        model.config.coverTheme = id
+                    }
+                }
+                tile("Desktop", selected: model.config.coverBackground == "desktop") {
+                    pictureOrPlaceholder(model.desktopThumb, symbol: "menubar.dock.rectangle")
+                } pick: { model.config.coverBackground = "desktop" }
+                tile(model.config.coverPhoto.isEmpty ? "Choose Photo" : "Photo", selected: model.config.coverBackground == "photo") {
+                    pictureOrPlaceholder(model.photoThumb, symbol: "plus")
+                } pick: {
+                    if model.config.coverPhoto.isEmpty { model.chooseCoverPhoto() }
+                    if !model.config.coverPhoto.isEmpty { model.config.coverBackground = "photo" }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func tile(_ name: String, selected: Bool, @ViewBuilder _ art: () -> some View, pick: @escaping () -> Void) -> some View {
+        Button(action: pick) {
+            VStack(spacing: 6) {
+                art()
+                    .frame(width: 96, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Color.accentColor : .white.opacity(0.15), lineWidth: selected ? 2.5 : 1))
+                    .overlay(alignment: .topTrailing) {
+                        if selected {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.white, Color.accentColor).padding(4)
+                        }
+                    }
+                Text(name).font(.caption).foregroundStyle(selected ? .primary : .secondary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder private func pictureOrPlaceholder(_ image: NSImage?, symbol: String) -> some View {
+        if let image {
+            Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+        } else {
+            ZStack {
+                Color.secondary.opacity(0.15)
+                Image(systemName: symbol).font(.title3).foregroundStyle(.secondary)
+            }
+        }
+    }
 
     private func previewCover() {
         guard previewing == nil else { return }
@@ -741,5 +812,19 @@ public final class SettingsWindow {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// A still of a color theme: its wash with the glows where the cover starts them.
+private struct ThemeSwatch: View {
+    let theme: CoverTheme
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: theme.wash.map { Color(nsColor: $0.withAlphaComponent(1)) }, startPoint: .topLeading, endPoint: .bottomTrailing)
+            ForEach(Array(theme.glows.prefix(2).enumerated()), id: \.offset) { i, glow in
+                RadialGradient(colors: [Color(nsColor: glow.withAlphaComponent(min(1, glow.alphaComponent * 2))), .clear],
+                               center: i == 0 ? UnitPoint(x: 0.25, y: 0.3) : UnitPoint(x: 0.8, y: 0.75), startRadius: 0, endRadius: 50)
+            }
+        }
     }
 }

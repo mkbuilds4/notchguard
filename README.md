@@ -16,6 +16,15 @@ Everything runs on your Mac. Camera frames are checked in memory and thrown away
 
 Requires macOS 14 or later on Apple silicon. Works on Macs without a notch too: the cover grows out of a pill at the top of the screen instead.
 
+## Why not just the screen saver timer?
+
+macOS can already lock itself: Lock Screen settings start the screen saver or turn off the display after a set idle time, then ask for your password. That timer only knows when you stopped typing. It doesn't know whether you're there.
+
+- **It locks you out while you're still there.** Reading a long page or thinking without touching the keyboard counts as idle. NotchGuard sees you're still at your Mac and leaves it alone.
+- **It leaves your Mac open after you've left.** With a 5 minute timer, anyone who sits down in those 5 minutes gets your Mac. NotchGuard covers the screen within seconds of you leaving.
+- **It can't tell who sat down.** NotchGuard locks as soon as someone else sits down and texts you their photo.
+- **Coming back means typing your password.** NotchGuard opens to your face.
+
 ## Install
 
 Download `NotchGuard-<version>.dmg` from the [latest release](../../releases/latest), drag it to Applications and open it. A setup window walks you through camera access, a one-time face model download, face setup and how strict to be.
