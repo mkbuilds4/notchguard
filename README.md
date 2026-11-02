@@ -16,7 +16,7 @@ Requires macOS 14 or later on Apple silicon. Works on Macs without a notch too: 
 
 ## Install
 
-Download the latest `NotchGuard.dmg` from [Releases](../../releases), drag it to Applications and open it. A setup window walks you through camera access, a one-time face model download, face setup and how strict to be.
+Download `NotchGuard-<version>.dmg` from the [latest release](../../releases/latest), drag it to Applications and open it. A setup window walks you through camera access, a one-time face model download, face setup and how strict to be.
 
 Or build it yourself (Xcode 16 or later):
 
