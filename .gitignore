@@ -6,3 +6,8 @@ dist/
 models/
 .attic/
 CLAUDE.local.md
+
+# Local tooling and launch media, kept out of the public repo.
+.claude/
+promo/
+promo-out/

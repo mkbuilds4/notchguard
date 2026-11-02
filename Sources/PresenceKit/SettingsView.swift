@@ -257,7 +257,7 @@ final class SettingsModel: ObservableObject {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general = "General", face = "Face ID", away = "Away & Cover", places = "Places & Schedule", intruders = "Intruders", apps = "Locked Apps", advanced = "Advanced"
+    case general = "General", face = "Face", away = "Away & Cover", places = "Places & Schedule", intruders = "Intruders", apps = "Locked Apps", advanced = "Advanced"
     var id: String { rawValue }
     var symbol: String {
         switch self {

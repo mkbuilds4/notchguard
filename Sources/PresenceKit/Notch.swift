@@ -163,7 +163,7 @@ final class FaceHUD {
 
     init() {
         let c = panel.content
-        let symbol = NSImage(systemSymbolName: "faceid", accessibilityDescription: "Face ID")?
+        let symbol = NSImage(systemSymbolName: "faceid", accessibilityDescription: "Face check")?
             .withSymbolConfiguration(.init(pointSize: 58, weight: .light))
         glyph.image = symbol
         glyph.contentTintColor = .white
