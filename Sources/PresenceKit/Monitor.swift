@@ -28,6 +28,10 @@ final class Monitor {
     /// Checks in a row that found you while idle; each one stretches the next wait (you're reading, not leaving).
     private var seenInARow = 0
     private var lowPowerCover = false
+    /// Bursts in a row that got no frames (camera in use by a call, lid closed). Each one waits longer before trying again.
+    private var unavailableInARow = 0
+    /// Why face unlock is skipped on this lock; logged once so a silent no-op is visible.
+    private var unlockSkipLogged: String?
     /// Mode from places and the schedule, re-read every check.
     private(set) var mode: GuardMode = .normal
     /// Your settings adjusted for the current mode.
@@ -68,7 +72,9 @@ final class Monitor {
     init(profile: Profile) throws {
         self.profile = profile
         matcher = try FaceMatcher()
-        camera = try Camera(preset: .high)
+        // 720p is plenty for a face at desk distance and keeps the same 16:9 framing as enrollment,
+        // so face widths (stranger and liveness thresholds) mean the same thing. About half the pixels of .high.
+        camera = try Camera(preset: .hd1280x720)
     }
 
     func look(_ frame: CVPixelBuffer) -> Look {
@@ -130,8 +136,10 @@ final class Monitor {
             }
 
             // A miss is confirmed right away; repeated sightings of you back off to save battery.
-            let backoff = [1.0, 1.5, 2.5, 3.75][min(seenInARow, 3)]
-            try? await Task.sleep(for: .seconds(misses > 0 ? 1 : cfg.interval * backoff))
+            let backoff = [1.0, 1.5, 2.5, 3.75, 5.0][min(seenInARow, 4)]
+            // Camera busy (a call, lid closed): don't keep knocking every few seconds.
+            let busyWait = unavailableInARow > 0 ? min(120, 15 * pow(2, Double(unavailableInARow - 1))) : 0
+            try? await Task.sleep(for: .seconds(misses > 0 ? 1 : max(busyWait, cfg.interval * backoff)))
             if FileManager.default.fileExists(atPath: Paths.paused.path) { misses = 0; continue }
             if screenIsLocked() { continue }
             if !cfg.places.isEmpty || !cfg.schedule.isEmpty {
@@ -141,7 +149,12 @@ final class Monitor {
             let idle = secondsIdle()
             if idle < active.idleGrace { misses = 0; seenInARow = 0; continue }
 
-            guard let (r, frames) = await burstLook() else { log("idle \(Int(idle))s: camera unavailable, skipping"); continue }
+            guard let (r, frames) = await burstLook() else {
+                unavailableInARow += 1
+                if unavailableInARow == 1 { log("idle \(Int(idle))s: camera unavailable, backing off until it's free") }
+                continue
+            }
+            if unavailableInARow > 0 { log("camera available again after \(unavailableInARow) tries"); unavailableInARow = 0 }
             if !loggedFirstCheck { loggedFirstCheck = true; log("first check ok: \(r.faces) face(s), best \(fmt(r.best))") }
             if r.me { misses = 0; seenInARow += 1; continue }
             seenInARow = 0
@@ -215,8 +228,8 @@ final class Monitor {
         if FileManager.default.fileExists(atPath: Paths.paused.path) { exitCover("paused: cover down"); return }
         if screenIsLocked() { exitCover("screen locked elsewhere: cover down"); return }
         let away = Date().timeIntervalSince(cover.since)
-        // Away more than a minute: 5 fps is plenty to notice you coming back, and far cheaper.
-        if away > 60 && !lowPowerCover { lowPowerCover = true; camera.setFrameRate(5) }
+        // Away more than a few seconds: 5 fps is plenty to notice you coming back, and far cheaper.
+        if away > 15 && !lowPowerCover { lowPowerCover = true; camera.setFrameRate(5) }
         if active.coverMinutes > 0 && away >= active.coverMinutes * 60 { lockNow("away \(Int(away))s: locking"); return }
 
         guard let frame = frameLock.withLock({ newest }) else { return }
@@ -233,7 +246,7 @@ final class Monitor {
                 exitCover("you're back after \(Int(away))s, live check passed (\(ev.summary)): cover down")
             case .spoof(let why):
                 hud.show(.failure("Not a real face")); hud.hide(after: 2)
-                intruder("fake face: \(why) (\(ev.summary))", frames: frameLock.withLock { recent })
+                intruder("fake face: \(why) (\(ev.summary))", frames: frameLock.withLock { recent }, fakeFace: true)
             case .inconclusive: hud.hide(); log("live check inconclusive (\(ev.summary)), retrying"); cover.setMessage(nil)
             }
             return
@@ -267,9 +280,17 @@ final class Monitor {
             lockedSince = Date()
             scanUntil = Date().addingTimeInterval(cfg.unlockLookSeconds)
             unlockArmed = false; absentSince = nil; wakeRequested = false
+            unlockSkipLogged = nil
         }
-        let paused = FileManager.default.fileExists(atPath: Paths.paused.path)
-        guard cfg.faceUnlock, password != nil, !intruderLatched, !paused, KeyTyper.trusted else {
+        // Face unlock works on every lock: ones you start yourself, the walk-away lock, and while walk-away is paused.
+        let skip: String? = !cfg.faceUnlock ? "turned off in Settings"
+            : !Credentials.isStored ? "no login password saved (Settings > Face > Unlock the lock screen with my face)"
+            : password == nil ? "waiting for Touch ID to release the saved password"
+            : intruderLatched ? "off after a fake face, until you type your password"
+            : !KeyTyper.trusted ? "Accessibility not granted, so it can't type the password"
+            : nil
+        if let skip {
+            if unlockSkipLogged != skip { unlockSkipLogged = skip; log("locked: face unlock skipped, \(skip)") }
             if unlockCameraOn { stopFrames(); unlockCameraOn = false }
             try? await Task.sleep(for: .seconds(1))
             return
@@ -343,8 +364,9 @@ final class Monitor {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [cover] in cover.hide(animated: false) }
     }
 
-    private func intruder(_ why: String, frames: [CVPixelBuffer]) {
-        intruderLatched = true
+    /// `fakeFace`: only a spoof attempt turns face unlock off. Someone else being seen doesn't, since unlocking still needs your live face.
+    private func intruder(_ why: String, frames: [CVPixelBuffer], fakeFace: Bool = false) {
+        if fakeFace { intruderLatched = true }
         let photos = Alert.save(frames)
         onEvent?(.intruder(photos: photos, reason: why))
         lockNow("INTRUDER: \(why); locking, \(photos.count) photo(s) saved")
